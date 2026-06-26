@@ -444,41 +444,119 @@ function DemandChart() {
 }
 
 // ─── Price History Chart (SVG) ────────────────────────────────────────────────
-function PriceHistoryChart({ product }) {
-  const hist = PRICE_HISTORY[product] || PRICE_HISTORY["Sony WH-1000XM5"];
-  const allPrices = [...hist.amazon, ...hist.flipkart, ...hist.croma];
-  const minP = Math.min(...allPrices) - 500;
-  const maxP = Math.max(...allPrices) + 500;
+function PriceHistoryChart({ scanHistory = [] }) {
+  // Aggregate price history per-user across all scans.
+  // scanHistory items are returned from /api/v1/product-lens/history
+  // with: price_min, price_max, prices_fetched_at
+
+  const sanitized = (scanHistory || [])
+    .filter(s => Number.isFinite(Number(s.price_min)) || Number.isFinite(Number(s.price_max)))
+    .map(s => {
+      const min = Number(s.price_min);
+      const max = Number(s.price_max);
+      const fetchedAt = s.prices_fetched_at || s.created_at;
+      const t = fetchedAt ? new Date(fetchedAt).getTime() : NaN;
+      return {
+        t,
+        min: Number.isFinite(min) ? min : (Number.isFinite(max) ? max : null),
+        max: Number.isFinite(max) ? max : (Number.isFinite(min) ? min : null),
+      };
+    })
+    .filter(x => Number.isFinite(x.t) && x.min !== null && x.max !== null)
+    .sort((a, b) => a.t - b.t);
+
+  // Downsample to a max of 12 points for readability
+  const points = sanitized.length > 12
+    ? sanitized.filter((_, idx) => idx % Math.ceil(sanitized.length / 12) === 0).slice(-12)
+    : sanitized;
+
+  if (points.length < 2) {
+    return (
+      <div style={{ padding: 14, color: C.muted, fontSize: 13 }}>
+        Not enough scan history to render price trends yet.
+      </div>
+    );
+  }
+
+  const derived = points.map(p => {
+    const mid = (p.min + p.max) / 2;
+    return { ...p, mid };
+  });
+
+  const all = [...derived.map(d => d.min), ...derived.map(d => d.max), ...derived.map(d => d.mid)];
+  const minP = Math.min(...all);
+  const maxP = Math.max(...all);
+  const range = (maxP - minP) || 1;
+
   const W = 580, H = 140;
-  const x = (i) => 40 + (i / (hist.labels.length - 1)) * (W - 60);
-  const y = (v) => H - ((v - minP) / (maxP - minP)) * (H - 20) - 10;
-  const line = (arr) => arr.map((v, i) => `${x(i)},${y(v)}`).join(" ");
-  const series = [
-    { data: hist.amazon, color: C.accent, label: "Amazon" },
-    { data: hist.flipkart, color: C.success, label: "Flipkart" },
-    { data: hist.croma, color: C.warning, label: "Croma" },
-  ];
+  const x = (i) => 40 + (i / (derived.length - 1)) * (W - 60);
+  const y = (v) => H - ((v - minP) / range) * (H - 20) - 10;
+  const line = (arr, pick) => arr.map((v, i) => `${x(i)},${y(pick(v))}`).join(" ");
+
+  const labels = derived.map(d => {
+    try {
+      return new Date(d.t).toLocaleDateString(undefined, { month: 'short', day: '2-digit' });
+    } catch {
+      return '';
+    }
+  });
+
   return (
     <div>
       <svg viewBox={`0 0 ${W} ${H + 40}`} style={{ width: "100%", height: 180 }}>
         {[minP, (minP + maxP) / 2, maxP].map(v => (
           <g key={v}>
             <line x1={40} y1={y(v)} x2={W - 20} y2={y(v)} stroke="rgba(255,255,255,0.05)" strokeWidth={1} />
-            <text x={36} y={y(v) + 4} fill={C.muted} fontSize={9} textAnchor="end">₹{Math.round(v/1000)}k</text>
+            <text x={36} y={y(v) + 4} fill={C.muted} fontSize={9} textAnchor="end">₹{Math.round(v / 1000)}k</text>
           </g>
         ))}
-        {hist.labels.map((m, i) => (
-          <text key={m} x={x(i)} y={H + 16} fill={C.muted} fontSize={10} textAnchor="middle">{m}</text>
+
+        {labels.map((m, i) => (
+          <text key={m + i} x={x(i)} y={H + 16} fill={C.muted} fontSize={10} textAnchor="middle">
+            {m}
+          </text>
         ))}
-        {series.map(s => (
-          <polyline key={s.label} points={line(s.data)} fill="none" stroke={s.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* mid line */}
+        <polyline
+          points={line(derived, d => d.mid)}
+          fill="none"
+          stroke={C.accent}
+          strokeWidth={2.5}
+          strokeLinecap="round"
+        />
+
+        {/* min/max bands */}
+        <polyline
+          points={line(derived, d => d.max)}
+          fill="none"
+          stroke={C.success}
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeDasharray="4,4"
+          opacity={0.8}
+        />
+        <polyline
+          points={line(derived, d => d.min)}
+          fill="none"
+          stroke={C.warning}
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeDasharray="4,4"
+          opacity={0.8}
+        />
+
+        {derived.map((d, i) => (
+          <circle key={d.t} cx={x(i)} cy={y(d.mid)} r={3.5} fill={C.accent} />
         ))}
-        {series.map(s => s.data.map((v, i) => (
-          <circle key={`${s.label}-${i}`} cx={x(i)} cy={y(v)} r={3} fill={s.color} />
-        )))}
       </svg>
+
       <div style={{ display: "flex", gap: 16, marginTop: 4 }}>
-        {series.map(s => (
+        {[
+          { label: 'Mid price', color: C.accent },
+          { label: 'Max observed', color: C.success },
+          { label: 'Min observed', color: C.warning },
+        ].map(s => (
           <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{ width: 20, height: 2, background: s.color, borderRadius: 2 }} />
             <span style={{ color: C.muted, fontSize: 11 }}>{s.label}</span>
@@ -488,6 +566,7 @@ function PriceHistoryChart({ product }) {
     </div>
   );
 }
+
 
 // ─── Revenue Chart (SVG) ─────────────────────────────────────────────────────
 function RevenueChart() {
@@ -532,10 +611,12 @@ function ProductLensModule() {
   const [progress, setProgress] = useState(0);
   const [aiResult, setAiResult] = useState(null);
   const [uploadedImage, setUploadedImage] = useState(null);
+  const [recentScanHistory, setRecentScanHistory] = useState([]);
   const fileRef = useRef(null);
   const cameraRef = useRef(null);
   const [showCamera, setShowCamera] = useState(false);
   const [stream, setStream] = useState(null);
+
 
   const simulateScan = (product) => {
     setPhase("scanning");
@@ -562,16 +643,24 @@ function ProductLensModule() {
       setProgress(p => Math.min(p + Math.random() * 8 + 3, 88));
     }, 200);
     try {
+      // NOTE: this UI is currently running in a fully local/mock mode.
+      // We still compute product and show live table (static in this file),
+      // but price history is now per-user by reading Supabase scans/history
+      // if the backend is wired.
+
       await wait(900);
       clearInterval(progIv);
       setProgress(100);
+
       const parsed = localProductInsight(`${seed}-${mimeType}-${base64Data?.length || 0}`);
       setAiResult(parsed);
+
       // Map to ECOM_PRICES using product name or fallback
       const matchedProduct = PRODUCTS.find(p =>
         p.name.toLowerCase().includes(parsed.brand?.toLowerCase()) ||
         p.name.toLowerCase().includes(parsed.productName?.toLowerCase().split(" ")[0])
       );
+
       setSelected({
         name: parsed.productName || "Unknown Product",
         brand: parsed.brand || "Unknown",
@@ -585,6 +674,26 @@ function ProductLensModule() {
         isAiDetected: true,
         ecomKey: matchedProduct?.name,
       });
+
+      // Fetch per-user scan history (best-effort)
+      try {
+        if (supabase) {
+          const { data } = await supabase.auth.getSession();
+          const token = data?.session?.access_token;
+          if (token) {
+            const res = await fetch("/api/v1/product-lens/history?limit=20", {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) {
+              const payload = await res.json();
+              setRecentScanHistory(payload?.scans || []);
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+
       setPhase("detected");
     } catch (err) {
       clearInterval(progIv);
@@ -592,6 +701,7 @@ function ProductLensModule() {
       setSelected(PRODUCTS[0]);
     }
   };
+
 
   const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
@@ -800,20 +910,20 @@ function ProductLensModule() {
             </div>
           </div>
 
-          {/* Price History Chart */}
-          {PRICE_HISTORY[ecomKey] && (
-            <div style={{ marginTop: 16, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
-              <p style={{ color: C.accent, fontSize: 12, margin: "0 0 16px", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-                6-Month Price History — {ecomKey}
+          {/* Price History Chart (per-user aggregated scans) */}
+          <div style={{ marginTop: 16, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
+            <p style={{ color: C.accent, fontSize: 12, margin: "0 0 16px", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+              Your Price Trends (All scans) — {selected.name}
+            </p>
+            <PriceHistoryChart scanHistory={recentScanHistory} />
+
+            <div style={{ marginTop: 14, padding: "10px 14px", background: "#7C3AED0A", borderRadius: 10, border: `1px solid ${C.purple}22` }}>
+              <p style={{ color: C.text, fontSize: 12, margin: 0 }}>
+                ✦ <strong>Price Insight:</strong> Trend line is computed from your saved scans (min/max observed across fetches).
               </p>
-              <PriceHistoryChart product={ecomKey} />
-              <div style={{ marginTop: 14, padding: "10px 14px", background: "#7C3AED0A", borderRadius: 10, border: `1px solid ${C.purple}22` }}>
-                <p style={{ color: C.text, fontSize: 12, margin: 0 }}>
-                  ✦ <strong>Price Insight:</strong> Amazon has dropped ₹6,000 over 6 months — a 18% decline. Based on trend, expect further drop to ~₹25,499 in August.
-                </p>
-              </div>
             </div>
-          )}
+          </div>
+
         </>
       )}
     </div>

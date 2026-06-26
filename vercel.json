@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/api/v1/dashboard", "destination": "/api/dashboard" },
+    { "source": "/api/v1/product-lens/scan", "destination": "/api/product-lens/scan" },
+    { "source": "/api/v1/product-lens/history", "destination": "/api/product-lens/history" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
+  "functions": {
+    "api/**/*.js": {
+      "maxDuration": 60
+    }
+  }
+}

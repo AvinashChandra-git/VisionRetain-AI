@@ -82,24 +82,3 @@ create policy "Users can read their product scans"
 create policy "Users can read their price listings"
   on public.price_listings for select
   using (auth.uid() = owner_id);
-
-insert into public.dashboard_metrics (key, label, value, delta, color, icon, format, sort_order)
-values
-  ('total_customers', 'Total Customers', 84291, '+12.4%', '#00E5FF', '◉', null, 1),
-  ('monthly_revenue', 'Monthly Revenue', 2847000, '+8.7%', '#00FF88', '◇', 'money', 2),
-  ('revenue_at_risk', 'Revenue at Risk', 342000, '-3.2%', '#FF5C5C', '△', 'money', 3),
-  ('high_risk_customers', 'High-Risk Customers', 2841, '+5.1%', '#FFC857', '▲', null, 4)
-on conflict (key) do nothing;
-
-insert into public.customers
-  (id, name, email, plan, spend, churn, risk, segment, ltv, nps, tenure, last_active)
-values
-  ('C001', 'Arjun Mehta', 'arjun@techcorp.in', 'Enterprise', 48200, 87, 'Critical', 'Enterprise', 578400, 22, 14, '32 days ago'),
-  ('C002', 'Priya Sharma', 'priya@startup.io', 'Pro', 12400, 23, 'Low', 'SMB', 148800, 71, 8, '2 days ago'),
-  ('C003', 'Rahul Gupta', 'rahul@ecom.com', 'Business', 28900, 61, 'High', 'B2B', 346800, 38, 22, '11 days ago'),
-  ('C004', 'Sneha Patel', 'sneha@retail.in', 'Starter', 4200, 44, 'Medium', 'SMB', 50400, 55, 5, '5 days ago'),
-  ('C005', 'Vikram Singh', 'vikram@mfg.co', 'Enterprise', 91500, 12, 'Low', 'Enterprise', 1098000, 84, 36, '1 day ago'),
-  ('C006', 'Ananya Roy', 'ananya@fin.tech', 'Pro', 19800, 78, 'High', 'B2B', 237600, 29, 11, '19 days ago'),
-  ('C007', 'Karan Verma', 'karan@media.in', 'Business', 33100, 95, 'Critical', 'B2B', 397200, 11, 7, '45 days ago'),
-  ('C008', 'Deepika Nair', 'deepika@health.io', 'Starter', 6700, 31, 'Low', 'SMB', 80400, 67, 10, '3 days ago')
-on conflict (id) do nothing;

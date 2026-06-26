@@ -1,0 +1,13 @@
+.env
+.env.local
+.venv
+__pycache__
+models
+main.py
+requirements.txt
+start_all.sh
+dev_all.sh
+VisionRetain_Backend.md
+VisionRetain_AI_v2.jsx
+node_modules
+dist

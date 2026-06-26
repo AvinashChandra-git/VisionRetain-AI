@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const AUTH_REDIRECT_URL = import.meta.env.VITE_AUTH_REDIRECT_URL;
 
 export const supabase = SUPABASE_URL && SUPABASE_ANON_KEY
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
@@ -38,17 +39,54 @@ export async function signInWithPassword(email, password) {
   return data;
 }
 
-export async function signUpWithPassword(email, password, fullName = "") {
+export async function signInWithGoogle() {
   assertSupabaseConfigured();
-  const { data, error } = await supabase.auth.signUp({
-    email: email.trim(),
-    password,
+  const redirectTo = AUTH_REDIRECT_URL || window.location.origin;
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
     options: {
-      data: { full_name: fullName.trim() },
+      redirectTo,
+      queryParams: {
+        access_type: "offline",
+        prompt: "select_account",
+      },
     },
   });
   if (error) throw error;
   return data;
+}
+
+export async function updateUserProfile(profile) {
+  assertSupabaseConfigured();
+  const { data, error } = await supabase.auth.updateUser({
+    data: {
+      ...profile,
+      profile_completed: true,
+      profile_completed_at: new Date().toISOString(),
+    },
+  });
+  if (error) throw error;
+  return data.user;
+}
+
+export async function sendPhoneChangeOtp(phone) {
+  assertSupabaseConfigured();
+  const { data, error } = await supabase.auth.updateUser({
+    phone: phone.trim(),
+  });
+  if (error) throw error;
+  return data.user;
+}
+
+export async function verifyPhoneChangeOtp(phone, otp) {
+  assertSupabaseConfigured();
+  const { data, error } = await supabase.auth.verifyOtp({
+    phone: phone.trim(),
+    token: otp.trim(),
+    type: "phone_change",
+  });
+  if (error) throw error;
+  return data.user || data.session?.user;
 }
 
 export async function verifyPhoneOtp(otp, phone) {

@@ -1,12 +1,15 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   getAccessToken,
   getSession,
   onAuthStateChange,
+  sendPhoneChangeOtp,
+  signInWithGoogle,
   signInWithPassword,
   signInWithPhoneOtp,
   signOut,
-  signUpWithPassword,
+  updateUserProfile,
+  verifyPhoneChangeOtp,
   verifyPhoneOtp,
 } from "./otpAuth";
 
@@ -20,75 +23,94 @@ const C = {
   indigo: "#6366F1", teal: "#14B8A6", orange: "#F97316"
 };
 
+const PHONE_E164 = /^\+[1-9]\d{7,14}$/;
+
 // ─── Static Data ─────────────────────────────────────────────────────────────
 const NAV = [
-  { id: "overview", label: "Overview", icon: "⬡" },
-  { id: "landing", label: "Home", icon: "◈" },
-  { id: "product-lens", label: "Product Lens", icon: "◎" },
-  { id: "price", label: "Price Intel", icon: "◇" },
-  { id: "customers", label: "Customers", icon: "◉" },
-  { id: "churn", label: "Churn Analytics", icon: "△" },
-  { id: "demand", label: "Demand Forecast", icon: "▲" },
-  { id: "sentiment", label: "Sentiment", icon: "◑" },
-  { id: "revenue", label: "Revenue Intel", icon: "₿" },
-  { id: "copilot", label: "AI Copilot", icon: "✦" },
-  { id: "reports", label: "Reports", icon: "▣" },
+  { id: "overview", label: "Overview", icon: "📊" },
+  { id: "landing", label: "Home", icon: "🏠" },
+  { id: "product-lens", label: "Product Lens", icon: "📷" },
+  { id: "price", label: "Price Intel", icon: "💸" },
+  { id: "customers", label: "Customers", icon: "👥" },
+  { id: "churn", label: "Churn Analytics", icon: "⚠" },
+  { id: "demand", label: "Demand Forecast", icon: "📈" },
+  { id: "sentiment", label: "Sentiment", icon: "💬" },
+  { id: "revenue", label: "Revenue Intel", icon: "₹" },
+  { id: "copilot", label: "AI Copilot", icon: "✨" },
+  { id: "reports", label: "Reports", icon: "📄" },
   { id: "settings", label: "Settings", icon: "⚙" },
 ];
 
-const CUSTOMERS = [
-  { id: "C001", name: "Arjun Mehta", email: "arjun@techcorp.in", plan: "Enterprise", spend: 48200, churn: 87, risk: "Critical", segment: "Enterprise", ltv: 578400, nps: 22, tenure: 14, lastActive: "32 days ago" },
-  { id: "C002", name: "Priya Sharma", email: "priya@startup.io", plan: "Pro", spend: 12400, churn: 23, risk: "Low", segment: "SMB", ltv: 148800, nps: 71, tenure: 8, lastActive: "2 days ago" },
-  { id: "C003", name: "Rahul Gupta", email: "rahul@ecom.com", plan: "Business", spend: 28900, churn: 61, risk: "High", segment: "B2B", ltv: 346800, nps: 38, tenure: 22, lastActive: "11 days ago" },
-  { id: "C004", name: "Sneha Patel", email: "sneha@retail.in", plan: "Starter", spend: 4200, churn: 44, risk: "Medium", segment: "SMB", ltv: 50400, nps: 55, tenure: 5, lastActive: "5 days ago" },
-  { id: "C005", name: "Vikram Singh", email: "vikram@mfg.co", plan: "Enterprise", spend: 91500, churn: 12, risk: "Low", segment: "Enterprise", ltv: 1098000, nps: 84, tenure: 36, lastActive: "1 day ago" },
-  { id: "C006", name: "Ananya Roy", email: "ananya@fin.tech", plan: "Pro", spend: 19800, churn: 78, risk: "High", segment: "B2B", ltv: 237600, nps: 29, tenure: 11, lastActive: "19 days ago" },
-  { id: "C007", name: "Karan Verma", email: "karan@media.in", plan: "Business", spend: 33100, churn: 95, risk: "Critical", segment: "B2B", ltv: 397200, nps: 11, tenure: 7, lastActive: "45 days ago" },
-  { id: "C008", name: "Deepika Nair", email: "deepika@health.io", plan: "Starter", spend: 6700, churn: 31, risk: "Low", segment: "SMB", ltv: 80400, nps: 67, tenure: 10, lastActive: "3 days ago" },
-];
+const profileStorageKey = (userId) => `visionretain_profile_complete_${userId}`;
 
-const CHURN_FACTORS = [
-  { factor: "Low Engagement Score", impact: 0.34, direction: "negative" },
-  { factor: "Frequent Support Tickets", impact: 0.28, direction: "negative" },
-  { factor: "High Price Sensitivity", impact: 0.22, direction: "negative" },
-  { factor: "No Recent Purchases", impact: 0.19, direction: "negative" },
-  { factor: "Subscription Duration", impact: 0.15, direction: "positive" },
-  { factor: "Feature Adoption Rate", impact: 0.12, direction: "positive" },
-];
+function useIsCompactScreen() {
+  const [compact, setCompact] = useState(() => (
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 820px)").matches : false
+  ));
 
-const DEMAND_DATA = {
-  labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep"],
-  actual:  [1200, 1450, 1380, 1620, 1780, 1950, null, null, null],
-  forecast:[null, null, null, null, null, 1950, 2100, 2280, 2420],
-  upper:   [null, null, null, null, null, 2050, 2300, 2520, 2720],
-  lower:   [null, null, null, null, null, 1850, 1900, 2040, 2120],
-};
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const query = window.matchMedia("(max-width: 820px)");
+    const update = () => setCompact(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
 
-const SENTIMENT_DATA = [
-  { platform: "Amazon Reviews", positive: 72, neutral: 18, negative: 10, total: 1284, trend: "+4.2%" },
-  { platform: "Flipkart Reviews", positive: 68, neutral: 21, negative: 11, total: 892, trend: "+1.8%" },
-  { platform: "Twitter/X Mentions", positive: 54, neutral: 28, negative: 18, total: 3421, trend: "-2.1%" },
-  { platform: "Reddit Discussions", positive: 61, neutral: 22, negative: 17, total: 445, trend: "+6.3%" },
-  { platform: "Google Reviews", positive: 78, neutral: 15, negative: 7, total: 2107, trend: "+3.5%" },
-];
+  return compact;
+}
 
-const REVENUE_DATA = {
-  monthly: [195, 210, 228, 241, 264, 284],
-  labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-  segments: [
-    { name: "Enterprise", arr: 148.2, growth: "+18.3%", color: C.accent, customers: 312 },
-    { name: "B2B", arr: 84.6, growth: "+11.2%", color: C.success, customers: 1847 },
-    { name: "SMB", arr: 45.8, growth: "+6.7%", color: C.warning, customers: 5892 },
-    { name: "Starter", arr: 5.4, growth: "-2.1%", color: C.danger, customers: 22840 },
-  ],
-};
+function isProfileComplete(user) {
+  if (!user?.id) return false;
+  if (user.user_metadata?.profile_completed) return true;
+  return localStorage.getItem(profileStorageKey(user.id)) === "true";
+}
 
-const KPI_DATA = [
-  { label: "Total Customers", value: 84291, delta: "+12.4%", color: C.accent, icon: "◉" },
-  { label: "Monthly Revenue", value: 2847000, delta: "+8.7%", color: C.success, icon: "◇", format: "money" },
-  { label: "Revenue at Risk", value: 342000, delta: "-3.2%", color: C.danger, icon: "△", format: "money" },
-  { label: "High-Risk Customers", value: 2841, delta: "+5.1%", color: C.warning, icon: "▲" },
-];
+function priceStatusMessage(status) {
+  if (!status) return "No verified live listings are available for this identification.";
+  if (status.status === "unconfigured") return "Live prices are not configured. Add SERPAPI_API_KEY, then restart or redeploy the backend.";
+  if (status.status === "provider_error") return "The live shopping provider is temporarily unavailable. Try again in a moment.";
+  if (status.status === "no_verified_matches") return "The product was identified, but no sufficiently relevant current shopping listings matched it.";
+  return status.message || "No verified live listings are available for this identification.";
+}
+
+function EmptyState({ title = "No live data yet", message = "Connect a live data source or add records in Supabase to populate this section." }) {
+  return (
+    <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 24, color: C.muted }}>
+      <p style={{ color: C.text, fontSize: 15, fontWeight: 700, margin: "0 0 6px" }}>{title}</p>
+      <p style={{ fontSize: 13, lineHeight: 1.6, margin: 0 }}>{message}</p>
+    </div>
+  );
+}
+
+function deriveMetrics(customers) {
+  const totalCustomers = customers.length;
+  const monthlyRevenue = customers.reduce((sum, c) => sum + Number(c.spend || 0), 0);
+  const highRisk = customers.filter(c => ["Critical", "High"].includes(c.risk)).length;
+  const revenueAtRisk = customers
+    .filter(c => ["Critical", "High"].includes(c.risk))
+    .reduce((sum, c) => sum + Number(c.spend || 0), 0);
+  return [
+    { label: "Total Customers", value: totalCustomers, delta: "Live DB", color: C.accent, icon: "👥" },
+    { label: "Monthly Revenue", value: monthlyRevenue, delta: "Live DB", color: C.success, icon: "₹", format: "money" },
+    { label: "Revenue at Risk", value: revenueAtRisk, delta: "Live DB", color: C.danger, icon: "⚠", format: "money" },
+    { label: "High-Risk Customers", value: highRisk, delta: "Live DB", color: C.warning, icon: "📈" },
+  ];
+}
+
+function riskDistribution(customers) {
+  const levels = [
+    { label: "Critical", color: C.danger },
+    { label: "High", color: C.warning },
+    { label: "Medium", color: C.accent },
+    { label: "Low", color: C.success },
+  ];
+  const total = Math.max(customers.length, 1);
+  return levels.map(level => {
+    const count = customers.filter(c => c.risk === level.label).length;
+    return { ...level, count, pct: Math.round((count / total) * 100) };
+  });
+}
 
 const COPILOT_STARTERS = [
   "Why are customers churning this month?",
@@ -116,10 +138,11 @@ function useCountUp(target, duration = 1800, active = true) {
   return value;
 }
 
-function formatMoney(n) {
-  if (n >= 1000000) return `$${(n / 1000000).toFixed(2)}M`;
-  if (n >= 1000) return `$${(n / 1000).toFixed(0)}K`;
-  return `$${n}`;
+function formatMoney(value) {
+  const amount = Number(value || 0);
+  if (amount >= 10000000) return `₹${(amount / 10000000).toFixed(2)} Cr`;
+  if (amount >= 100000) return `₹${(amount / 100000).toFixed(2)}L`;
+  return `₹${amount.toLocaleString()}`;
 }
 
 function callClaude(messages, systemPrompt) {
@@ -135,8 +158,53 @@ function callClaude(messages, systemPrompt) {
   }).then(r => r.json());
 }
 
-const ML_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8002";
+const DEFAULT_API_BASE_URL =
+  typeof window !== "undefined" && window.location.hostname.includes("localhost")
+    ? "http://127.0.0.1:8002"
+    : "/api";
+const ML_BASE_URL = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL;
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const USE_SERVERLESS_API = ML_BASE_URL.startsWith("/api");
+const apiEndpoint = (path) => USE_SERVERLESS_API ? path : `${ML_BASE_URL}${path}`;
+const healthEndpoint = USE_SERVERLESS_API ? "/api/health" : `${ML_BASE_URL}/health`;
+
+async function readApiResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+  const payload = contentType.includes("application/json")
+    ? await response.json()
+    : { detail: (await response.text()).slice(0, 240) || `Request failed (${response.status})` };
+  if (!response.ok) {
+    throw new Error(payload.detail || payload.message || `Request failed (${response.status})`);
+  }
+  return payload;
+}
+
+async function imageFileToPayload(file) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+  const image = await new Promise((resolve, reject) => {
+    const element = new Image();
+    element.onload = () => resolve(element);
+    element.onerror = reject;
+    element.src = dataUrl;
+  });
+  const maxDimension = 1024;
+  const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.width * scale));
+  canvas.height = Math.max(1, Math.round(image.height * scale));
+  canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+  const compressed = canvas.toDataURL("image/jpeg", 0.72);
+  return {
+    image_base64: compressed.split(",")[1],
+    mime_type: "image/jpeg",
+    filename: file.name,
+  };
+}
 
 function productIcon(category = "") {
   const value = category.toLowerCase();
@@ -157,77 +225,6 @@ async function optionalAccessToken() {
     return null;
   }
 }
-
-function useLiveDashboard(enabled = true, pollMs = 15000) {
-  const [live, setLive] = useState({
-    loading: false,
-    error: null,
-    kpis: null,
-    demand: null,
-    revenue: null,
-    sentiment: null,
-    riskDistribution: null,
-    highRiskCustomers: null,
-  });
-
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-
-    async function tick() {
-      setLive((p) => ({ ...p, loading: true, error: null }));
-      try {
-        const baseUrl = "http://127.0.0.1:8001";
-        const [kpisRes, demandRes, revenueRes, sentimentRes, riskRes] = await Promise.all([
-          fetch(`${baseUrl}/dashboard/kpis`),
-          fetch(`${baseUrl}/dashboard/demand`),
-          fetch(`${baseUrl}/dashboard/revenue`),
-          fetch(`${baseUrl}/dashboard/sentiment`),
-          fetch(`${baseUrl}/dashboard/risk-distribution`),
-        ]);
-
-        const [kpis, demand, revenue, sentiment, riskDistribution] = await Promise.all([
-          kpisRes.ok ? kpisRes.json() : Promise.resolve(null),
-          demandRes.ok ? demandRes.json() : Promise.resolve(null),
-          revenueRes.ok ? revenueRes.json() : Promise.resolve(null),
-          sentimentRes.ok ? sentimentRes.json() : Promise.resolve(null),
-          riskRes.ok ? riskRes.json() : Promise.resolve(null),
-        ]);
-
-        // optional high-risk customers
-        const highRiskRes = await fetch(`${baseUrl}/dashboard/high-risk-customers`);
-        const highRiskCustomers = highRiskRes.ok ? await highRiskRes.json() : null;
-
-        if (!cancelled) {
-          setLive({
-            loading: false,
-            error: null,
-            kpis,
-            demand,
-            revenue,
-            sentiment,
-            riskDistribution,
-            highRiskCustomers,
-          });
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setLive((p) => ({ ...p, loading: false, error: String(e?.message || e) }));
-        }
-      }
-    }
-
-    tick();
-    const id = setInterval(tick, pollMs);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [enabled, pollMs]);
-
-  return live;
-}
-
 
 // ─── Supabase Auth (via src/otpAuth.js) ─────────────────────────────────────
 
@@ -288,33 +285,6 @@ function localSentimentAnalysis(text) {
   };
 }
 
-function localRetentionPlan(customer, mlPrediction) {
-  const riskPct = mlPrediction?.churn_probability ? Math.round(mlPrediction.churn_probability * 100) : customer.churn;
-  return [
-    { step: "Week 1", action: `Have a senior CSM call ${customer.name} with a usage-loss review and one clear recovery goal.`, expected_impact: `Addresses ${riskPct}% churn risk within the current renewal window` },
-    { step: "Week 2", action: `Run a guided enablement session for underused ${customer.plan} features and assign an adoption checklist.`, expected_impact: "Raises engagement and feature adoption by an estimated 25-40%" },
-    { step: "Week 3", action: `Offer a loyalty save package tied to an annual commitment and executive business review.`, expected_impact: `Protects up to ₹${(customer.spend * 12).toLocaleString()} ARR` },
-  ];
-}
-
-function localCopilotReply(message) {
-  const msg = message.toLowerCase();
-  if (msg.includes("churn") || msg.includes("risk")) {
-    return "**Churn needs immediate attention.** 2,841 customers are high risk, with Karan Verma at 95%, Arjun Mehta at 87%, and Ananya Roy at 78%.\n\nRecommended action: start with accounts inactive for 30+ days, pair CSM outreach with feature-adoption coaching, and reserve discounts for customers with high LTV and low NPS.";
-  }
-  if (msg.includes("revenue") || msg.includes("arr") || msg.includes("mrr")) {
-    return "**Revenue is healthy but exposed.** MRR is ₹2.84 Cr (+8.7%), ARR is ₹34.1 Cr, and ₹34.2L MRR is currently at risk.\n\nBest lever: protect Enterprise and B2B renewals first. Recovering even 40% of the at-risk MRR would preserve roughly ₹13.7L monthly.";
-  }
-  if (msg.includes("product") || msg.includes("price")) {
-    return "**Product intelligence is showing useful pricing signals.** Sony WH-1000XM5 is cheapest on Amazon at ₹26,999, iPhone 15 Pro is ₹1,29,900, and LG OLED 55 inch is ₹82,000.\n\nUse these price gaps for competitor alerts, merchandising, and win-back offers.";
-  }
-  return "**Top insight:** retention and revenue are connected this month. Demand is forecast to grow 14.2% over 90 days, but critical churn accounts could erase part of that upside.\n\nFocus this week on high-LTV customers with low NPS, recent inactivity, and repeated support tickets.";
-}
-
-function executiveSummaryText() {
-  return "This month shows strong operating momentum: monthly revenue reached ₹2.84 Cr, up 8.7%, while NRR remains healthy at 118%. Enterprise expansion is the strongest contributor, with high-value customers continuing to outpace SMB growth.\n\nThe main risk is retention. 2,841 customers are flagged as high risk, representing ₹34.2L in exposed MRR. The highest-priority interventions are Karan Verma at 95% churn probability, Arjun Mehta at 87%, and Ananya Roy at 78%.\n\nProduct intelligence is also producing actionable signals. Sony WH-1000XM5 is tracking at ₹26,999 on Amazon, while demand forecasting indicates 14.2% growth over the next 90 days. Recommendation: protect critical renewals first, then use pricing and demand signals to drive targeted expansion campaigns.";
-}
-
 function downloadText(filename, content, type = "text/plain") {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -323,19 +293,6 @@ function downloadText(filename, content, type = "text/plain") {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-function buildReport(type) {
-  const rows = [
-    ["Metric", "Value"],
-    ["Customers", "84291"],
-    ["MRR", "₹2.84 Cr"],
-    ["ARR", "₹34.1 Cr"],
-    ["Revenue at Risk", "₹34.2L"],
-    ["High Risk Customers", "2841"],
-    ["Report Type", type],
-  ];
-  return rows.map(row => row.join(",")).join("\n");
 }
 
 // ─── Shared Components ────────────────────────────────────────────────────────
@@ -412,100 +369,9 @@ function ChurnBar({ factor, impact, direction }) {
   );
 }
 
-// ─── Demand Forecast Chart ─────────────────────────────────────────────────────
-function DemandChart() {
-  const months = DEMAND_DATA.labels;
-  const actual = DEMAND_DATA.actual;
-  const forecast = DEMAND_DATA.forecast;
-  const maxVal = 2800;
-  const height = 160;
-  const width = 100;
-  return (
-    <svg viewBox={`0 0 ${months.length * width} ${height + 50}`} style={{ width: "100%", height: 220 }}>
-      {[0, 700, 1400, 2100, 2800].map(v => {
-        const y = height - (v / maxVal) * height;
-        return (
-          <g key={v}>
-            <line x1={0} y1={y} x2={months.length * width} y2={y} stroke="rgba(255,255,255,0.05)" strokeWidth={1} />
-            <text x={-4} y={y + 4} fill={C.muted} fontSize={10} textAnchor="end">{v >= 1000 ? `${v/1000}k` : v}</text>
-          </g>
-        );
-      })}
-      {months.map((m, i) => (
-        <text key={m} x={i * width + 50} y={height + 20} fill={C.muted} fontSize={11} textAnchor="middle">{m}</text>
-      ))}
-      <path
-        d={`M ${months.map((_, i) => {
-          const v = DEMAND_DATA.upper[i];
-          if (v === null) return null;
-          return `${i * 100 + 50},${height - (v / maxVal) * height}`;
-        }).filter(Boolean).join(" L ")} L ${[...months].reverse().map((_, ri) => {
-          const i = months.length - 1 - ri;
-          const v = DEMAND_DATA.lower[i];
-          if (v === null) return null;
-          return `${i * 100 + 50},${height - (v / maxVal) * height}`;
-        }).filter(Boolean).join(" L ")} Z`}
-        fill="rgba(0,229,255,0.08)"
-      />
-      <polyline
-        points={actual.map((v, i) => v !== null ? `${i * 100 + 50},${height - (v / maxVal) * height}` : null).filter(Boolean).join(" ")}
-        fill="none" stroke={C.accent} strokeWidth={2.5} strokeLinecap="round"
-      />
-      <polyline
-        points={forecast.map((v, i) => v !== null ? `${i * 100 + 50},${height - (v / maxVal) * height}` : null).filter(Boolean).join(" ")}
-        fill="none" stroke={C.warning} strokeWidth={2} strokeLinecap="round" strokeDasharray="6,4"
-      />
-      {actual.map((v, i) => v !== null && (
-        <circle key={i} cx={i * 100 + 50} cy={height - (v / maxVal) * height} r={4} fill={C.accent} />
-      ))}
-      <g transform={`translate(${months.length * 100 / 2 - 80}, ${height + 35})`}>
-        <rect x={0} y={0} width={8} height={2} fill={C.accent} />
-        <text x={12} y={5} fill={C.muted} fontSize={11}>Actual</text>
-        <rect x={70} y={0} width={8} height={2} fill={C.warning} />
-        <text x={82} y={5} fill={C.muted} fontSize={11}>Forecast</text>
-      </g>
-    </svg>
-  );
-}
-
-// ─── Revenue Chart (SVG) ─────────────────────────────────────────────────────
-function RevenueChart() {
-  const data = REVENUE_DATA.monthly;
-  const labels = REVENUE_DATA.labels;
-  const maxV = Math.max(...data) + 20;
-  const W = 500, H = 120;
-  const x = (i) => 30 + (i / (data.length - 1)) * (W - 50);
-  const y = (v) => H - (v / maxV) * (H - 10) - 5;
-  const pts = data.map((v, i) => `${x(i)},${y(v)}`).join(" ");
-  const area = `M ${x(0)},${H} L ${pts} L ${x(data.length - 1)},${H} Z`;
-  return (
-    <svg viewBox={`0 0 ${W} ${H + 30}`} style={{ width: "100%", height: 160 }}>
-      <defs>
-        <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={C.success} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={C.success} stopOpacity="0.01" />
-        </linearGradient>
-      </defs>
-      {[0, maxV / 2, maxV].map(v => (
-        <g key={v}>
-          <line x1={30} y1={y(v)} x2={W - 20} y2={y(v)} stroke="rgba(255,255,255,0.05)" strokeWidth={1} />
-          <text x={26} y={y(v) + 4} fill={C.muted} fontSize={9} textAnchor="end">₹{Math.round(v)}L</text>
-        </g>
-      ))}
-      <path d={area} fill="url(#revGrad)" />
-      <polyline points={pts} fill="none" stroke={C.success} strokeWidth={2.5} strokeLinecap="round" />
-      {data.map((v, i) => (
-        <circle key={i} cx={x(i)} cy={y(v)} r={3.5} fill={C.success} />
-      ))}
-      {labels.map((m, i) => (
-        <text key={m} x={x(i)} y={H + 16} fill={C.muted} fontSize={10} textAnchor="middle">{m}</text>
-      ))}
-    </svg>
-  );
-}
-
 // ─── Product Lens Module (REAL AI image analysis) ─────────────────────────────
 function ProductLensModule() {
+  const compact = useIsCompactScreen();
   const [phase, setPhase] = useState("idle"); // idle | scanning | detected | error
   const [selected, setSelected] = useState(null);
   const [progress, setProgress] = useState(0);
@@ -525,11 +391,11 @@ function ProductLensModule() {
     try {
       const token = await optionalAccessToken();
       if (!token) return;
-      const response = await fetch(`${ML_BASE_URL}/api/v1/product-lens/history?limit=8`, {
+      const response = await fetch(apiEndpoint("/api/v1/product-lens/history?limit=8"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.ok) {
-        const data = await response.json();
+        const data = await readApiResponse(response);
         setRecentScans(data.scans || []);
       }
     } catch {
@@ -552,17 +418,17 @@ function ProductLensModule() {
     }, 200);
     try {
       const token = await optionalAccessToken();
-      const body = new FormData();
-      body.append("image", file);
-      const response = await fetch(`${ML_BASE_URL}/api/v1/product-lens/scan`, {
+      const body = USE_SERVERLESS_API ? JSON.stringify(await imageFileToPayload(file)) : new FormData();
+      if (!USE_SERVERLESS_API) body.append("image", file);
+      const response = await fetch(apiEndpoint("/api/v1/product-lens/scan"), {
         method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(USE_SERVERLESS_API ? { "Content-Type": "application/json" } : {}),
+        },
         body,
       });
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.detail || "Product scan failed");
-      }
+      const result = await readApiResponse(response);
       clearInterval(progIv);
       setProgress(100);
       const parsed = result.identification;
@@ -660,7 +526,7 @@ function ProductLensModule() {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 20 }}>
         {/* Scan Panel */}
         <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, overflow: "hidden" }}>
           <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
@@ -825,7 +691,7 @@ function ProductLensModule() {
             </div>
             {prices.length === 0 && (
               <div style={{ padding: 20, color: C.muted, fontSize: 13 }}>
-                {priceStatus?.message || "No verified live listings are available for this identification."}
+                {priceStatusMessage(priceStatus)}
               </div>
             )}
           </div>
@@ -838,7 +704,8 @@ function ProductLensModule() {
 }
 
 // ─── Customers Module ─────────────────────────────────────────────────────────
-function CustomersModule({ customers = CUSTOMERS }) {
+function CustomersModule({ customers = [] }) {
+  const compact = useIsCompactScreen();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [view, setView] = useState("table"); // table | segments
@@ -847,17 +714,31 @@ function CustomersModule({ customers = CUSTOMERS }) {
     (c.name.toLowerCase().includes(search.toLowerCase()) || c.email.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const segments = [
-    { name: "Enterprise Champions", customers: 312, avgLtv: 1098000, churn: 8, color: C.success, icon: "⬡", desc: "High-spend, high-NPS, long tenure. Upsell targets." },
-    { name: "B2B Growth Accounts", customers: 1847, avgLtv: 346800, churn: 34, color: C.accent, icon: "◉", desc: "Strong engagement. At risk from competitor pricing." },
-    { name: "SMB Active", customers: 5892, avgLtv: 80400, churn: 28, color: C.warning, icon: "◇", desc: "Healthy but price-sensitive. Need proactive support." },
-    { name: "At-Risk Churners", customers: 2841, avgLtv: 192000, churn: 82, color: C.danger, icon: "△", desc: "Low engagement, high support tickets. Urgent action needed." },
-  ];
+  const segments = Object.values(customers.reduce((acc, c) => {
+    const name = c.segment || c.plan || "Unsegmented";
+    acc[name] ||= { name, customers: 0, ltv: 0, churn: 0 };
+    acc[name].customers += 1;
+    acc[name].ltv += Number(c.ltv || 0);
+    acc[name].churn += Number(c.churn || 0);
+    return acc;
+  }, {})).map((segment, index) => ({
+    ...segment,
+    avgLtv: segment.customers ? segment.ltv / segment.customers : 0,
+    avgChurn: segment.customers ? segment.churn / segment.customers : 0,
+    color: [C.success, C.accent, C.warning, C.danger, C.purple][index % 5],
+  }));
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search customers..." style={{ flex: 1, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", color: C.text, fontSize: 13, outline: "none" }} />
+      {customers.length === 0 ? (
+        <EmptyState
+          title="No live customers in the database"
+          message="Add real customer rows to Supabase or connect your CRM import. Demo customers are no longer shown."
+        />
+      ) : (
+      <>
+      <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search customers..." style={{ flex: compact ? "1 1 100%" : 1, minWidth: 180, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", color: C.text, fontSize: 13, outline: "none" }} />
         {["All", "Critical", "High", "Medium", "Low"].map(f => (
           <button key={f} onClick={() => setFilter(f)} style={{ background: filter === f ? C.accent : "transparent", color: filter === f ? "#000" : C.muted, border: `1px solid ${filter === f ? C.accent : C.border}`, borderRadius: 8, padding: "8px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>{f}</button>
         ))}
@@ -867,25 +748,25 @@ function CustomersModule({ customers = CUSTOMERS }) {
       </div>
 
       {view === "segments" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 16, marginBottom: 20 }}>
           {segments.map(s => (
             <div key={s.name} style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${s.color}22`, padding: 20 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
                 <div>
-                  <span style={{ color: s.color, fontSize: 20 }}>{s.icon}</span>
+                  <span style={{ color: s.color, fontSize: 20 }}>👥</span>
                   <h4 style={{ color: "#fff", margin: "6px 0 4px", fontSize: 14, fontWeight: 700 }}>{s.name}</h4>
-                  <p style={{ color: C.muted, fontSize: 12, margin: 0 }}>{s.desc}</p>
+                  <p style={{ color: C.muted, fontSize: 12, margin: 0 }}>Derived from live customer rows.</p>
                 </div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 14 }}>
                 {[
                   ["Customers", s.customers.toLocaleString()],
                   ["Avg LTV", `₹${(s.avgLtv / 100000).toFixed(1)}L`],
-                  ["Churn Risk", `${s.churn}%`],
+                  ["Churn Risk", `${Math.round(s.avgChurn)}%`],
                 ].map(([k, v]) => (
                   <div key={k} style={{ background: "#ffffff06", borderRadius: 8, padding: "8px 10px" }}>
                     <p style={{ color: C.muted, fontSize: 10, margin: "0 0 3px", textTransform: "uppercase" }}>{k}</p>
-                    <p style={{ color: k === "Churn Risk" ? (s.churn > 60 ? C.danger : s.churn > 30 ? C.warning : C.success) : C.text, fontSize: 15, fontWeight: 700, margin: 0 }}>{v}</p>
+                    <p style={{ color: k === "Churn Risk" ? (s.avgChurn > 60 ? C.danger : s.avgChurn > 30 ? C.warning : C.success) : C.text, fontSize: 15, fontWeight: 700, margin: 0 }}>{v}</p>
                   </div>
                 ))}
               </div>
@@ -894,7 +775,7 @@ function CustomersModule({ customers = CUSTOMERS }) {
         </div>
       )}
 
-      <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+      <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ borderBottom: `1px solid ${C.border}` }}>
@@ -941,32 +822,45 @@ function CustomersModule({ customers = CUSTOMERS }) {
           <div style={{ textAlign: "center", padding: "40px", color: C.muted }}>No customers found</div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }
 
 // ─── Churn Module ─────────────────────────────────────────────────────────────
-function ChurnModule({ customers = CUSTOMERS }) {
-  const [customer, setCustomer] = useState(customers[0] || CUSTOMERS[0]);
+function ChurnModule({ customers = [] }) {
+  const [customer, setCustomer] = useState(customers[0] || null);
   const [aiRecs, setAiRecs] = useState(null);
   const [loadingRecs, setLoadingRecs] = useState(false);
   const [mlPrediction, setMlPrediction] = useState(null);
 
   useEffect(() => {
+    if (!customers.length) {
+      setCustomer(null);
+      return;
+    }
+    setCustomer(current => current && customers.some(c => c.id === current.id) ? current : customers[0]);
+  }, [customers]);
+
+  useEffect(() => {
+    if (!customer) return;
     let cancelled = false;
     setMlPrediction(null);
     predictChurnWithML(customer)
       .then(result => { if (!cancelled) setMlPrediction(result); })
-      .catch(() => { if (!cancelled) setMlPrediction({ risk_level: customer.risk.toUpperCase(), churn_probability: customer.churn / 100, model: "Local fallback" }); });
+      .catch(() => { if (!cancelled) setMlPrediction({ error: "Live ML prediction unavailable" }); });
     return () => { cancelled = true; };
   }, [customer]);
 
-  const getAIRetentionPlan = async () => {
-    setLoadingRecs(true);
-    await wait(700);
-    setAiRecs(localRetentionPlan(customer, mlPrediction));
-    setLoadingRecs(false);
-  };
+  if (!customers.length || !customer) {
+    return (
+      <EmptyState
+        title="No live customers available for churn analysis"
+        message="Churn analytics now requires real customer records from the database. Add customers or connect an import before running analysis."
+      />
+    );
+  }
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 20 }}>
@@ -1016,8 +910,8 @@ function ChurnModule({ customers = CUSTOMERS }) {
                   ["NPS Score", customer.nps],
                   ["Tenure", `${customer.tenure} months`],
                   ["Last Active", customer.lastActive],
-                  ["Live ML Score", mlPrediction?.churn_probability ? `${Math.round(mlPrediction.churn_probability * 100)}%` : "Checking..."],
-                  ["Model", mlPrediction?.model || "XGBoost ensemble"],
+                  ["Live ML Score", mlPrediction?.churn_probability ? `${Math.round(mlPrediction.churn_probability * 100)}%` : mlPrediction?.error || "Checking..."],
+                  ["Model", mlPrediction?.model || (mlPrediction?.error ? "Unavailable" : "Live backend")],
                 ].map(([k, v]) => (
                   <div key={k} style={{ background: "#ffffff05", borderRadius: 8, padding: "8px 12px" }}>
                     <p style={{ color: C.muted, fontSize: 11, margin: "0 0 3px" }}>{k}</p>
@@ -1031,44 +925,20 @@ function ChurnModule({ customers = CUSTOMERS }) {
 
         <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20, marginBottom: 16 }}>
           <p style={{ color: C.accent, fontSize: 12, margin: "0 0 16px", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-            SHAP Explainability — Top Churn Drivers
+            Live Explainability
           </p>
-          {CHURN_FACTORS.map((f, i) => <ChurnBar key={i} {...f} />)}
+          <p style={{ color: C.muted, fontSize: 13, lineHeight: 1.6, margin: 0 }}>
+            Explainability is shown only when the live ML backend returns feature drivers. Static SHAP demo factors have been removed.
+          </p>
         </div>
 
         <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <p style={{ color: C.accent, fontSize: 12, margin: 0, letterSpacing: "0.1em", textTransform: "uppercase" }}>AI Retention Playbook</p>
-            {!aiRecs && (
-              <button onClick={getAIRetentionPlan} disabled={loadingRecs} style={{ background: `linear-gradient(135deg, ${C.purple}, ${C.accent})`, color: "#000", border: "none", borderRadius: 8, padding: "7px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: loadingRecs ? 0.6 : 1 }}>
-                {loadingRecs ? "Generating..." : "✦ Generate with AI"}
-              </button>
-            )}
           </div>
-          {!aiRecs && !loadingRecs && (
-            <div style={{ padding: "12px 16px", background: "#FFC85714", borderRadius: 10, border: `1px solid ${C.warning}33` }}>
-              <p style={{ color: C.warning, fontSize: 13, margin: 0, fontWeight: 500 }}>
-                ⚡ Default: Offer 20% discount + dedicated CSM to reduce churn by est. 34%
-              </p>
-            </div>
-          )}
-          {loadingRecs && (
-            <div style={{ display: "flex", gap: 6, padding: 16 }}>
-              {[0, 1, 2].map(i => <div key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: C.accent, animation: `pulse ${0.5 + i * 0.15}s ease-in-out infinite alternate` }} />)}
-              <span style={{ color: C.muted, fontSize: 13, marginLeft: 6 }}>Generating personalized retention plan...</span>
-            </div>
-          )}
-          {aiRecs && aiRecs.map((r, i) => (
-            <div key={i} style={{ display: "flex", gap: 14, padding: "12px 0", borderBottom: i < aiRecs.length - 1 ? `1px solid ${C.border}` : "none" }}>
-              <div style={{ width: 60, flexShrink: 0, background: `${C.purple}22`, borderRadius: 8, padding: "6px 8px", textAlign: "center" }}>
-                <p style={{ color: C.purple, fontSize: 10, fontWeight: 700, margin: 0 }}>{r.step}</p>
-              </div>
-              <div>
-                <p style={{ color: C.text, fontSize: 13, margin: "0 0 4px", fontWeight: 500 }}>{r.action}</p>
-                <p style={{ color: C.success, fontSize: 11, margin: 0 }}>↑ {r.expected_impact}</p>
-              </div>
-            </div>
-          ))}
+          <p style={{ color: C.muted, fontSize: 13, lineHeight: 1.6, margin: 0 }}>
+            Retention recommendations require a live AI endpoint connected to your real customer history. No local demo playbook is shown.
+          </p>
         </div>
       </div>
     </div>
@@ -1093,26 +963,11 @@ function SentimentModule() {
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
-        {SENTIMENT_DATA.map(s => (
-          <div key={s.platform} style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 18 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
-              <p style={{ color: C.text, fontWeight: 600, margin: 0, fontSize: 14 }}>{s.platform}</p>
-              <span style={{ color: s.trend.startsWith("+") ? C.success : C.danger, fontSize: 12, fontWeight: 600 }}>{s.trend}</span>
-            </div>
-            <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", marginBottom: 10 }}>
-              <div style={{ width: `${s.positive}%`, background: C.success }} />
-              <div style={{ width: `${s.neutral}%`, background: C.muted }} />
-              <div style={{ width: `${s.negative}%`, background: C.danger }} />
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-              <span style={{ color: C.success }}>● {s.positive}% pos</span>
-              <span style={{ color: C.muted }}>● {s.neutral}% neutral</span>
-              <span style={{ color: C.danger }}>● {s.negative}% neg</span>
-            </div>
-            <p style={{ color: C.muted, fontSize: 11, margin: "8px 0 0" }}>{s.total.toLocaleString()} total mentions</p>
-          </div>
-        ))}
+      <div style={{ marginBottom: 20 }}>
+        <EmptyState
+          title="No live sentiment dataset connected"
+          message="Static social/review sentiment cards have been removed. Connect a reviews, tickets, or mentions table/API to show live sentiment aggregates."
+        />
       </div>
 
       {/* Real-time Text Analysis */}
@@ -1167,45 +1022,58 @@ function SentimentModule() {
 }
 
 // ─── Revenue Intelligence Module ──────────────────────────────────────────────
-function RevenueModule() {
+function RevenueModule({ customers = [] }) {
+  if (!customers.length) {
+    return (
+      <EmptyState
+        title="No live revenue records"
+        message="Revenue intelligence now uses real customer spend from the database. Add customer rows with spend values or connect billing data."
+      />
+    );
+  }
+  const monthlyRevenue = customers.reduce((sum, c) => sum + Number(c.spend || 0), 0);
+  const annualRevenue = monthlyRevenue * 12;
+  const atRiskRevenue = customers
+    .filter(c => ["Critical", "High"].includes(c.risk))
+    .reduce((sum, c) => sum + Number(c.spend || 0), 0);
+  const avgContract = customers.length ? monthlyRevenue / customers.length : 0;
+  const bySegment = Object.values(customers.reduce((acc, c) => {
+    const segment = c.segment || c.plan || "Unsegmented";
+    acc[segment] ||= { name: segment, revenue: 0, customers: 0 };
+    acc[segment].revenue += Number(c.spend || 0);
+    acc[segment].customers += 1;
+    return acc;
+  }, {}));
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 20 }}>
         {[
-          { label: "ARR", value: "₹34.1 Cr", delta: "+14.8%", color: C.success, sub: "Annual Recurring Revenue" },
-          { label: "MRR", value: "₹2.84 Cr", delta: "+8.7%", color: C.accent, sub: "Monthly Recurring Revenue" },
-          { label: "Revenue at Risk", value: "₹34.2L", delta: "+3.2%", color: C.danger, sub: "From churn signals" },
-          { label: "Expansion Revenue", value: "₹8.4L", delta: "+22.1%", color: C.purple, sub: "Upsells this month" },
-          { label: "Net Revenue Retention", value: "118%", delta: "+4%", color: C.success, sub: "NRR — World class" },
-          { label: "Avg Contract Value", value: "₹4.06L", delta: "+6.3%", color: C.warning, sub: "ACV per account" },
+          { label: "ARR", value: formatMoney(annualRevenue), color: C.success, sub: "Derived from live customer spend" },
+          { label: "MRR", value: formatMoney(monthlyRevenue), color: C.accent, sub: "Sum of live monthly spend" },
+          { label: "Revenue at Risk", value: formatMoney(atRiskRevenue), color: C.danger, sub: "Critical + High risk customers" },
+          { label: "Customers", value: customers.length.toLocaleString(), color: C.purple, sub: "Live database rows" },
+          { label: "Avg Customer Spend", value: formatMoney(avgContract), color: C.success, sub: "Monthly average" },
+          { label: "Segments", value: bySegment.length.toLocaleString(), color: C.warning, sub: "From live customer segments" },
         ].map(k => (
           <div key={k.label} style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${k.color}22`, padding: 18 }}>
             <p style={{ color: C.muted, fontSize: 11, textTransform: "uppercase", margin: "0 0 8px" }}>{k.label}</p>
             <p style={{ color: "#fff", fontSize: 22, fontWeight: 800, margin: "0 0 4px" }}>{k.value}</p>
-            <p style={{ color: k.delta.startsWith("+") ? C.success : C.danger, fontSize: 12, fontWeight: 600, margin: "0 0 4px" }}>{k.delta}</p>
             <p style={{ color: C.muted, fontSize: 11, margin: 0 }}>{k.sub}</p>
           </div>
         ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 20, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20, marginBottom: 20 }}>
         <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
-          <p style={{ color: C.accent, fontSize: 12, margin: "0 0 16px", letterSpacing: "0.1em", textTransform: "uppercase" }}>Revenue Trend — 6 Month</p>
-          <RevenueChart />
-        </div>
-        <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
-          <p style={{ color: C.accent, fontSize: 12, margin: "0 0 16px", letterSpacing: "0.1em", textTransform: "uppercase" }}>ARR by Segment</p>
-          {REVENUE_DATA.segments.map((s, i) => (
+          <p style={{ color: C.accent, fontSize: 12, margin: "0 0 16px", letterSpacing: "0.1em", textTransform: "uppercase" }}>Revenue by Segment</p>
+          {bySegment.map((s) => (
             <div key={s.name} style={{ marginBottom: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                 <span style={{ color: C.text, fontSize: 13 }}>{s.name}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ color: s.growth.startsWith("+") ? C.success : C.danger, fontSize: 12, fontWeight: 600 }}>{s.growth}</span>
-                  <span style={{ color: C.text, fontSize: 13, fontWeight: 700 }}>₹{s.arr}Cr</span>
-                </div>
+                <span style={{ color: C.text, fontSize: 13, fontWeight: 700 }}>{formatMoney(s.revenue)}</span>
               </div>
               <div style={{ background: "#ffffff08", borderRadius: 4, height: 7, overflow: "hidden" }}>
-                <div style={{ width: `${(s.arr / 284) * 100}%`, height: "100%", background: s.color, borderRadius: 4 }} />
+                <div style={{ width: `${monthlyRevenue ? (s.revenue / monthlyRevenue) * 100 : 0}%`, height: "100%", background: C.accent, borderRadius: 4 }} />
               </div>
               <p style={{ color: C.muted, fontSize: 10, margin: "4px 0 0" }}>{s.customers.toLocaleString()} customers</p>
             </div>
@@ -1213,236 +1081,33 @@ function RevenueModule() {
         </div>
       </div>
 
-      <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
-        <p style={{ color: C.accent, fontSize: 12, margin: "0 0 16px", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-          Revenue Forecast — Next 90 Days
-        </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-          {[
-            { period: "30-Day", base: "₹2.96 Cr", bull: "₹3.12 Cr", bear: "₹2.71 Cr" },
-            { period: "60-Day", base: "₹3.08 Cr", bull: "₹3.34 Cr", bear: "₹2.72 Cr" },
-            { period: "90-Day", base: "₹3.22 Cr", bull: "₹3.61 Cr", bear: "₹2.68 Cr" },
-          ].map(f => (
-            <div key={f.period} style={{ background: "#ffffff06", borderRadius: 12, padding: 16 }}>
-              <p style={{ color: C.muted, fontSize: 11, textTransform: "uppercase", margin: "0 0 10px" }}>{f.period} Forecast</p>
-              <p style={{ color: C.text, fontSize: 18, fontWeight: 700, margin: "0 0 8px" }}>{f.base}</p>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                <span style={{ color: C.success }}>▲ {f.bull}</span>
-                <span style={{ color: C.danger }}>▼ {f.bear}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div style={{ marginTop: 16, padding: "12px 16px", background: "#7C3AED14", borderRadius: 10, border: `1px solid ${C.purple}33` }}>
-          <p style={{ color: C.text, fontSize: 13, margin: 0 }}>
-            ✦ <strong>AI Forecast:</strong> Base scenario assumes current retention rates hold. Bullish case requires successful win-back of 47 renewals due this month (₹89L ARR). Bear case reflects unchecked SMB churn acceleration.
-          </p>
-        </div>
-      </div>
+      <EmptyState title="No live revenue forecast connected" message="Forecasts require a time-series billing/order dataset. Static 90-day revenue forecasts have been removed." />
     </div>
   );
 }
 
 // ─── AI Copilot ───────────────────────────────────────────────────────────────
 function CopilotModule() {
-  const [messages, setMessages] = useState([
-    { role: "assistant", content: "Hello! I'm your AI Business Copilot. I can analyze churn patterns, predict revenue, suggest retention strategies, scan product prices, and surface key business insights. What would you like to explore?" }
-  ]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [streaming, setStreaming] = useState("");
-  const bottomRef = useRef(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streaming]);
-
-  const send = useCallback(async (text) => {
-    const msg = text || input;
-    if (!msg.trim()) return;
-    setInput("");
-    setMessages(prev => [...prev, { role: "user", content: msg }]);
-    setLoading(true);
-    setStreaming("");
-
-    const reply = localCopilotReply(msg);
-    let i = 0;
-    const iv = setInterval(() => {
-      i += 4;
-      setStreaming(reply.slice(0, i));
-      if (i >= reply.length) {
-        clearInterval(iv);
-        setMessages(prev => [...prev, { role: "assistant", content: reply }]);
-        setStreaming("");
-        setLoading(false);
-      }
-    }, 10);
-  }, [input, messages]);
-
-  const formatMsg = (text) => {
-    return text.split("\n").map((line, i) => {
-      const escaped = line.replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
-      const bold = escaped.replace(/\*\*(.*?)\*\*/g, "<strong style='color:#fff'>$1</strong>");
-      return <p key={i} style={{ margin: "0 0 5px", lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: bold }} />;
-    });
-  };
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: 580 }}>
-      <div style={{ background: C.bgCard, borderRadius: "16px 16px 0 0", border: `1px solid ${C.border}`, borderBottom: "none", padding: "14px 20px", display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ width: 36, height: 36, borderRadius: "50%", background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>✦</div>
-        <div>
-          <p style={{ color: "#fff", margin: 0, fontWeight: 600, fontSize: 15 }}>AI Business Copilot</p>
-          <p style={{ color: C.success, margin: 0, fontSize: 11 }}>● Powered by Claude · Live</p>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-          <span style={{ background: "#00E5FF14", color: C.accent, fontSize: 10, padding: "3px 10px", borderRadius: 10 }}>Context-aware</span>
-          <span style={{ background: "#7C3AED14", color: C.purple, fontSize: 10, padding: "3px 10px", borderRadius: 10 }}>Memory: ON</span>
-        </div>
-      </div>
-
-      <div style={{ flex: 1, overflowY: "auto", padding: 16, background: C.bgCard, border: `1px solid ${C.border}`, borderTop: "none", borderBottom: "none", display: "flex", flexDirection: "column", gap: 12 }}>
-        {messages.map((m, i) => (
-          <div key={i} style={{ display: "flex", gap: 10, flexDirection: m.role === "user" ? "row-reverse" : "row" }}>
-            <div style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0, background: m.role === "user" ? `linear-gradient(135deg, ${C.purple}, ${C.pink})` : `linear-gradient(135deg, ${C.accent}, ${C.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>
-              {m.role === "user" ? "U" : "✦"}
-            </div>
-            <div style={{ maxWidth: "75%", background: m.role === "user" ? "#7C3AED22" : "#0F172A", border: `1px solid ${m.role === "user" ? C.purple + "44" : C.border}`, borderRadius: 12, padding: "10px 14px", color: C.text, fontSize: 13 }}>
-              {formatMsg(m.content)}
-            </div>
-          </div>
-        ))}
-        {streaming && (
-          <div style={{ display: "flex", gap: 10 }}>
-            <div style={{ width: 28, height: 28, borderRadius: "50%", background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>✦</div>
-            <div style={{ maxWidth: "75%", background: "#0F172A", border: `1px solid ${C.border}`, borderRadius: 12, padding: "10px 14px", color: C.text, fontSize: 13 }}>
-              {formatMsg(streaming)}<span style={{ animation: "blink 1s infinite" }}>▌</span>
-            </div>
-          </div>
-        )}
-        {loading && !streaming && (
-          <div style={{ display: "flex", gap: 10 }}>
-            <div style={{ width: 28, height: 28, borderRadius: "50%", background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>✦</div>
-            <div style={{ padding: "10px 14px", background: "#0F172A", border: `1px solid ${C.border}`, borderRadius: 12 }}>
-              <div style={{ display: "flex", gap: 4 }}>
-                {[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: C.accent, animation: `pulse ${0.5+i*0.15}s ease-in-out infinite alternate` }} />)}
-              </div>
-            </div>
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </div>
-
-      <div style={{ background: C.bgCard, borderRadius: "0 0 16px 16px", border: `1px solid ${C.border}`, borderTop: "none", padding: 12 }}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-          {COPILOT_STARTERS.slice(0, 4).map(q => (
-            <button key={q} onClick={() => send(q)} style={{ background: "#00E5FF0A", border: `1px solid ${C.accent}33`, color: C.accent, borderRadius: 20, padding: "4px 11px", fontSize: 11, cursor: "pointer" }}>{q.slice(0, 32)}...</button>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && !loading && send()}
-            placeholder="Ask about churn, revenue, products, customers..." style={{ flex: 1, background: "#ffffff08", border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", color: C.text, fontSize: 13, outline: "none" }} />
-          <button onClick={() => send()} disabled={loading} style={{ background: C.accent, color: "#000", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, cursor: "pointer", fontWeight: 700, opacity: loading ? 0.5 : 1 }}>→</button>
-        </div>
-      </div>
-    </div>
+    <EmptyState
+      title="AI Copilot is not connected to a live backend yet"
+      message="Local canned Copilot answers have been removed. Add a protected AI chat endpoint connected to your real database before enabling this section."
+    />
   );
 }
 
 // ─── Reports Module ────────────────────────────────────────────────────────────
 function ReportsModule() {
-  const [generating, setGenerating] = useState(null);
-  const [done, setDone] = useState({});
-  const [aiSummary, setAiSummary] = useState(null);
-  const [loadingSummary, setLoadingSummary] = useState(false);
-
-  const gen = (type) => {
-    setGenerating(type);
-    setTimeout(() => { setGenerating(null); setDone(prev => ({ ...prev, [type]: true })); }, 2200);
-  };
-
-  const generateExecutiveSummary = async () => {
-    setLoadingSummary(true);
-    await wait(900);
-    setAiSummary(executiveSummaryText());
-    setLoadingSummary(false);
-  };
-
-  const reports = [
-    { id: "churn", title: "Churn Analysis Report", desc: "Full churn breakdown with SHAP explanations, risk segments, and retention recommendations", icon: "△", color: C.danger },
-    { id: "revenue", title: "Revenue Trends Report", desc: "Monthly revenue analysis, ARR at risk, and 90-day forecast with confidence intervals", icon: "◇", color: C.success },
-    { id: "product", title: "Product Performance Report", desc: "Price intelligence history, scan statistics, and e-commerce competitive analysis", icon: "◎", color: C.accent },
-    { id: "customer", title: "Customer Segmentation Report", desc: "RFM analysis, cohort retention, lifetime value distribution, and segment health", icon: "◉", color: C.purple },
-  ];
-
   return (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-        {reports.map(r => (
-          <div key={r.id} style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20, position: "relative", overflow: "hidden" }}>
-            <div style={{ position: "absolute", top: 0, right: 0, width: 80, height: 80, background: `radial-gradient(circle at top right, ${r.color}18, transparent 70%)` }} />
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 14 }}>
-              <span style={{ fontSize: 28, color: r.color }}>{r.icon}</span>
-              <div>
-                <h4 style={{ color: "#fff", margin: "0 0 4px", fontSize: 14, fontWeight: 600 }}>{r.title}</h4>
-                <p style={{ color: C.muted, margin: 0, fontSize: 12, lineHeight: 1.5 }}>{r.desc}</p>
-              </div>
-            </div>
-            {done[r.id] ? (
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => downloadText(`${r.id}-report.txt`, `${r.title}\n\n${r.desc}\n\n${executiveSummaryText()}`)} style={{ flex: 1, background: "#00FF8814", border: `1px solid ${C.success}44`, color: C.success, borderRadius: 8, padding: "8px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>↓ Download PDF</button>
-                <button onClick={() => downloadText(`${r.id}-report.csv`, buildReport(r.id), "text/csv")} style={{ flex: 1, background: "#00E5FF14", border: `1px solid ${C.accent}44`, color: C.accent, borderRadius: 8, padding: "8px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>↓ Download Excel</button>
-              </div>
-            ) : (
-              <button onClick={() => gen(r.id)} disabled={generating === r.id} style={{ width: "100%", background: generating === r.id ? "#ffffff08" : r.color + "22", border: `1px solid ${r.color}44`, color: r.color, borderRadius: 8, padding: "10px", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                {generating === r.id ? (
-                  <><div style={{ width: 14, height: 14, border: `2px solid ${r.color}44`, borderTop: `2px solid ${r.color}`, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Generating...</>
-                ) : "Generate Report →"}
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* AI Executive Summary */}
-      <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <p style={{ color: C.accent, fontSize: 12, margin: 0, letterSpacing: "0.1em", textTransform: "uppercase" }}>✦ AI Executive Summary</p>
-          {!aiSummary && (
-            <button onClick={generateExecutiveSummary} disabled={loadingSummary} style={{ background: `linear-gradient(135deg, ${C.purple}, ${C.accent})`, color: "#000", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: loadingSummary ? 0.6 : 1 }}>
-              {loadingSummary ? "Generating..." : "Generate with AI →"}
-            </button>
-          )}
-        </div>
-        {!aiSummary && !loadingSummary && (
-          <p style={{ color: C.muted, fontSize: 13 }}>Generate an AI-written executive summary of this month's performance, ready to share with your board or investors.</p>
-        )}
-        {loadingSummary && (
-          <div style={{ display: "flex", gap: 6, padding: 8 }}>
-            {[0,1,2].map(i => <div key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: C.accent, animation: `pulse ${0.5+i*0.15}s ease-in-out infinite alternate` }} />)}
-            <span style={{ color: C.muted, fontSize: 13, marginLeft: 6 }}>Analyzing business data and writing summary...</span>
-          </div>
-        )}
-        {aiSummary && (
-          <div>
-            {aiSummary.split("\n\n").map((para, i) => (
-              <p key={i} style={{ color: C.text, fontSize: 13, lineHeight: 1.8, margin: "0 0 14px" }}>{para}</p>
-            ))}
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <button onClick={() => setAiSummary(null)} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.muted, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}>Regenerate</button>
-              <button onClick={() => downloadText("executive-summary.txt", aiSummary)} style={{ background: "#00FF8814", border: `1px solid ${C.success}44`, color: C.success, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>↓ Export as PDF</button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+    <EmptyState
+      title="Live reports are not connected yet"
+      message="Static/generated report downloads have been removed. Reports need a backend endpoint that builds files from your real database records."
+    />
   );
 }
 
 // ─── Landing Page ──────────────────────────────────────────────────────────────
 function LandingPage({ onEnter }) {
-  const c1 = useCountUp(84291, 2000, true);
-  const c2 = useCountUp(97, 2000, true);
   const features = [
     { icon: "◎", title: "Product Lens AI", desc: "Real AI image recognition. Upload any product photo — get brand, model, specs, and live price comparison instantly." },
     { icon: "△", title: "Churn Prediction", desc: "XGBoost + Random Forest with SHAP explanations. Identify at-risk customers before they leave." },
@@ -1463,23 +1128,11 @@ function LandingPage({ onEnter }) {
         <h1 style={{ fontSize: 56, fontWeight: 900, margin: "0 0 8px", lineHeight: 1.05, letterSpacing: "-0.03em", background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Scan Products.</h1>
         <h1 style={{ fontSize: 56, fontWeight: 900, color: C.success, margin: "0 0 24px", lineHeight: 1.05, letterSpacing: "-0.03em" }}>Protect Revenue.</h1>
         <p style={{ color: C.muted, fontSize: 18, maxWidth: 540, margin: "0 auto 40px", lineHeight: 1.7 }}>
-          AI-powered product intelligence and customer retention platform. One platform. Every insight. Production-ready.
+          AI-powered product intelligence and customer retention platform connected to your live data sources.
         </p>
         <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 60 }}>
           <button onClick={onEnter} style={{ background: C.accent, color: "#000", border: "none", borderRadius: 12, padding: "14px 32px", fontSize: 15, fontWeight: 800, cursor: "pointer", boxShadow: `0 0 40px ${C.accent}44` }}>Launch Dashboard →</button>
-          <button onClick={onEnter} style={{ background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 12, padding: "14px 32px", fontSize: 15, cursor: "pointer" }}>Watch Demo</button>
-        </div>
-        <div style={{ display: "flex", justifyContent: "center", gap: 48, marginBottom: 60 }}>
-          {[
-            [`${c1.toLocaleString()}+`, "Customers Monitored"],
-            [`${c2}%`, "AI Accuracy"],
-            ["₹2.84 Cr", "Revenue Protected"],
-          ].map(([val, label]) => (
-            <div key={label} style={{ textAlign: "center" }}>
-              <p style={{ color: "#fff", fontSize: 32, fontWeight: 800, margin: "0 0 4px" }}>{val}</p>
-              <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>{label}</p>
-            </div>
-          ))}
+          <button onClick={onEnter} style={{ background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 12, padding: "14px 32px", fontSize: 15, cursor: "pointer" }}>Open Workspace</button>
         </div>
       </div>
       <div style={{ padding: "0 40px 80px" }}>
@@ -1502,12 +1155,119 @@ function LandingPage({ onEnter }) {
 }
 
 // ─── Settings Module ──────────────────────────────────────────────────────────
-function SettingsModule() {
+function SettingsModule({ user, onProfileUpdated }) {
   const [tab, setTab] = useState("profile");
   const [saved, setSaved] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState("");
+  const [settingsPhoneOtp, setSettingsPhoneOtp] = useState("");
+  const [settingsPhoneOtpSent, setSettingsPhoneOtpSent] = useState(false);
+  const [settingsPhoneVerified, setSettingsPhoneVerified] = useState(() => Boolean(user?.phone));
+  const [settingsPhoneBusy, setSettingsPhoneBusy] = useState(false);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    full_name: "",
+    email: "",
+    company: "",
+    job_title: "",
+    phone: "",
+    timezone: "",
+  });
 
   const save = () => { setSaved(true); setTimeout(() => setSaved(false), 2000); };
+
+  useEffect(() => {
+    const metadata = user?.user_metadata || {};
+    setProfileForm({
+      full_name: metadata.full_name || metadata.name || "",
+      email: user?.email || "",
+      company: metadata.company || "",
+      job_title: metadata.job_title || "",
+      phone: user?.phone || metadata.phone || "",
+      timezone: metadata.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Kolkata",
+    });
+    setSettingsPhoneVerified(Boolean(user?.phone));
+    setSettingsPhoneOtpSent(false);
+    setSettingsPhoneOtp("");
+  }, [user?.id, user?.email, user?.phone, user?.user_metadata]);
+
+  const setProfileField = (field, value) => {
+    setProfileForm(current => ({ ...current, [field]: value }));
+    if (field === "phone") {
+      setSettingsPhoneVerified(Boolean(user?.phone && value.trim() === user.phone));
+      setSettingsPhoneOtpSent(false);
+      setSettingsPhoneOtp("");
+    }
+  };
+
+  const requestSettingsPhoneOtp = async () => {
+    const cleanPhone = profileForm.phone.replace(/\s/g, "");
+    setProfileError("");
+    if (!PHONE_E164.test(cleanPhone)) {
+      setProfileError("Enter phone in international format, for example +919876543210.");
+      return;
+    }
+    setSettingsPhoneBusy(true);
+    try {
+      await sendPhoneChangeOtp(cleanPhone);
+      setProfileForm(current => ({ ...current, phone: cleanPhone }));
+      setSettingsPhoneOtpSent(true);
+    } catch (err) {
+      setProfileError(err?.message || "Could not send phone verification OTP.");
+    } finally {
+      setSettingsPhoneBusy(false);
+    }
+  };
+
+  const confirmSettingsPhoneOtp = async () => {
+    const cleanPhone = profileForm.phone.replace(/\s/g, "");
+    setProfileError("");
+    setSettingsPhoneBusy(true);
+    try {
+      const updatedUser = await verifyPhoneChangeOtp(cleanPhone, settingsPhoneOtp);
+      setSettingsPhoneVerified(true);
+      setSettingsPhoneOtpSent(false);
+      setSettingsPhoneOtp("");
+      onProfileUpdated?.(updatedUser);
+    } catch (err) {
+      setProfileError(err?.message || "Invalid phone verification code.");
+    } finally {
+      setSettingsPhoneBusy(false);
+    }
+  };
+
+  const saveProfile = async () => {
+    setSavingProfile(true);
+    setProfileError("");
+    try {
+      const cleanPhone = profileForm.phone.trim().replace(/\s/g, "");
+      if (cleanPhone) {
+        if (!PHONE_E164.test(cleanPhone)) {
+          throw new Error("Enter phone in international format, for example +919876543210.");
+        }
+        if (!settingsPhoneVerified) {
+          throw new Error("Verify your phone number with OTP, or leave phone blank.");
+        }
+      }
+      const updatedUser = await updateUserProfile({
+        full_name: profileForm.full_name.trim(),
+        company: profileForm.company.trim(),
+        job_title: profileForm.job_title.trim(),
+        phone: cleanPhone,
+        timezone: profileForm.timezone.trim(),
+      });
+      localStorage.setItem(profileStorageKey(user.id), "true");
+      onProfileUpdated?.(updatedUser);
+      save();
+    } catch (err) {
+      setProfileError(err?.message || "Could not save profile details.");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const currentMemberName = profileForm.full_name || user?.email?.split("@")[0] || "You";
+  const currentMemberEmail = profileForm.email || user?.email || user?.phone || "Signed-in user";
 
   const TABS = [
     { id: "profile", label: "Profile & Team" },
@@ -1532,13 +1292,41 @@ function SettingsModule() {
           <div style={{ background: C.bgCard, borderRadius: 14, border: `1px solid ${C.border}`, padding: 24 }}>
             <h3 style={{ color: "#fff", margin: "0 0 20px", fontSize: 16 }}>Profile & Team Settings</h3>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
-              {[["Full Name","Aryan Kumar"],["Email","aryan@visionretain.ai"],["Company","VisionRetain AI"],["Job Title","Founder & CEO"],["Phone","+91 98765 43210"],["Timezone","Asia/Kolkata (IST)"]].map(([label, val]) => (
-                <div key={label}>
-                  <p style={{ color: C.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 6px" }}>{label}</p>
-                  <input defaultValue={val} style={{ width: "100%", background: "#ffffff08", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", color: C.text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-                </div>
+              {[
+                ["full_name", "Full Name", "name", false],
+                ["email", "Email", "email", true],
+                ["company", "Company", "organization", false],
+                ["job_title", "Job Title (optional)", "organization-title", false],
+                ["phone", "Phone (optional)", "tel", false],
+                ["timezone", "Timezone", "off", false],
+              ].map(([field, label, autoComplete, readOnly]) => (
+                <label key={field}>
+                  <span style={{ color: C.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 6px", display: "block" }}>{label}</span>
+                  <input
+                    value={profileForm[field]}
+                    onChange={e => setProfileField(field, field === "phone" ? e.target.value.replace(/[^\d+ -]/g, "") : e.target.value)}
+                    readOnly={readOnly}
+                    autoComplete={autoComplete}
+                    style={{ width: "100%", background: readOnly ? "#ffffff04" : "#ffffff08", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", color: readOnly ? C.muted : C.text, fontSize: 13, outline: "none", boxSizing: "border-box" }}
+                  />
+                </label>
               ))}
             </div>
+            {profileForm.phone.trim() && (
+              <div style={{ display: "grid", gridTemplateColumns: settingsPhoneOtpSent ? "minmax(0, 1fr) auto auto" : "minmax(0, 1fr) auto", gap: 10, alignItems: "center", margin: "-4px 0 18px" }}>
+                <p style={{ color: settingsPhoneVerified ? C.success : C.muted, fontSize: 12, margin: 0 }}>
+                  {settingsPhoneVerified ? "Phone verified" : "Verify this phone number before saving."}
+                </p>
+                {settingsPhoneOtpSent && (
+                  <input aria-label="Phone verification OTP" inputMode="numeric" value={settingsPhoneOtp} onChange={e => setSettingsPhoneOtp(e.target.value.replace(/\D/g, "").slice(0, 8))} placeholder="OTP" style={{ width: 120, background: "#ffffff08", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", color: C.text, fontSize: 13, outline: "none", textAlign: "center" }} />
+                )}
+                {!settingsPhoneVerified && (
+                  <button type="button" onClick={settingsPhoneOtpSent ? confirmSettingsPhoneOtp : requestSettingsPhoneOtp} disabled={settingsPhoneBusy} style={{ background: `${C.accent}22`, border: `1px solid ${C.accent}44`, color: C.accent, borderRadius: 8, padding: "9px 12px", fontSize: 12, fontWeight: 700, cursor: settingsPhoneBusy ? "wait" : "pointer" }}>
+                    {settingsPhoneBusy ? "Wait..." : settingsPhoneOtpSent ? "Verify OTP" : "Send OTP"}
+                  </button>
+                )}
+              </div>
+            )}
             <div style={{ marginBottom: 20 }}>
               <p style={{ color: C.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 6px" }}>AI Model</p>
               <select style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", color: C.text, fontSize: 13, width: "100%", outline: "none" }}>
@@ -1547,8 +1335,9 @@ function SettingsModule() {
                 <option>Claude Haiku 4.5 (Fastest)</option>
               </select>
             </div>
-            <button onClick={save} style={{ background: saved ? C.success : C.accent, color: "#000", border: "none", borderRadius: 9, padding: "10px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "background 0.3s" }}>
-              {saved ? "✓ Saved!" : "Save Changes"}
+            {profileError && <p role="alert" style={{ color: C.danger, background: "#FF5C5C12", border: "1px solid #FF5C5C33", padding: "10px 12px", borderRadius: 8, fontSize: 12, margin: "0 0 14px" }}>{profileError}</p>}
+            <button onClick={saveProfile} disabled={savingProfile} style={{ background: saved ? C.success : savingProfile ? C.muted : C.accent, color: "#000", border: "none", borderRadius: 9, padding: "10px 24px", fontSize: 13, fontWeight: 700, cursor: savingProfile ? "wait" : "pointer", transition: "background 0.3s" }}>
+              {savingProfile ? "Saving..." : saved ? "Saved!" : "Save Changes"}
             </button>
             <div style={{ marginTop: 28, paddingTop: 24, borderTop: `1px solid ${C.border}` }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
@@ -1556,7 +1345,7 @@ function SettingsModule() {
                 <button onClick={save} style={{ background: `${C.purple}22`, border: `1px solid ${C.purple}44`, color: C.purple, borderRadius: 7, padding: "5px 12px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>+ Invite Member</button>
               </div>
               {[
-                { name: "Aryan Kumar", email: "aryan@visionretain.ai", role: "Admin", status: "Active" },
+                { name: currentMemberName, email: currentMemberEmail, role: "Admin", status: "Active" },
                 { name: "Priyanka Mehta", email: "priyanka@visionretain.ai", role: "Analyst", status: "Active" },
                 { name: "Rohit Das", email: "rohit@visionretain.ai", role: "Manager", status: "Active" },
                 { name: "Neha Verma", email: "neha@visionretain.ai", role: "Business Owner", status: "Pending" },
@@ -1705,38 +1494,10 @@ function SettingsModule() {
         )}
 
         {tab === "billing" && (
-          <div style={{ background: C.bgCard, borderRadius: 14, border: `1px solid ${C.border}`, padding: 24 }}>
-            <h3 style={{ color: "#fff", margin: "0 0 20px", fontSize: 16 }}>Billing & Subscription</h3>
-            <div style={{ background: `linear-gradient(135deg, ${C.purple}22, ${C.accent}11)`, borderRadius: 14, border: `1px solid ${C.purple}44`, padding: 20, marginBottom: 20 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <p style={{ color: C.purple, fontSize: 11, textTransform: "uppercase", fontWeight: 700, margin: "0 0 6px", letterSpacing: "0.1em" }}>Current Plan</p>
-                  <h2 style={{ color: "#fff", margin: "0 0 4px", fontSize: 24, fontWeight: 800 }}>Enterprise</h2>
-                  <p style={{ color: C.muted, margin: 0, fontSize: 13 }}>Unlimited users · All modules · Priority support</p>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <p style={{ color: "#fff", fontSize: 26, fontWeight: 800, margin: "0 0 3px" }}>₹49,999<span style={{ fontSize: 14, fontWeight: 400, color: C.muted }}>/mo</span></p>
-                  <p style={{ color: C.success, fontSize: 12, margin: 0 }}>Next billing: Aug 18, 2026</p>
-                </div>
-              </div>
-            </div>
-            <p style={{ color: C.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 12px" }}>Usage This Month</p>
-            {[
-              { label: "AI Copilot Queries", used: 2841, limit: 10000 },
-              { label: "Product Scans", used: 1247, limit: 5000 },
-              { label: "API Calls", used: 84291, limit: 500000 },
-            ].map(u => (
-              <div key={u.label} style={{ marginBottom: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                  <span style={{ color: C.text, fontSize: 13 }}>{u.label}</span>
-                  <span style={{ color: C.muted, fontSize: 12 }}>{u.used.toLocaleString()} / {u.limit.toLocaleString()}</span>
-                </div>
-                <div style={{ background: "#ffffff08", borderRadius: 4, height: 5, overflow: "hidden" }}>
-                  <div style={{ width: `${(u.used / u.limit) * 100}%`, height: "100%", background: u.used / u.limit > 0.8 ? C.warning : C.accent, borderRadius: 4 }} />
-                </div>
-              </div>
-            ))}
-          </div>
+          <EmptyState
+            title="Live billing is not connected"
+            message="Static plan, price, and usage counters have been removed. Connect Stripe, Razorpay, or your billing table to show live subscription data."
+          />
         )}
       </div>
     </div>
@@ -1745,10 +1506,8 @@ function SettingsModule() {
 
 function AuthScreen() {
   const [method, setMethod] = useState("password");
-  const [passwordMode, setPasswordMode] = useState("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("+91");
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
@@ -1770,7 +1529,7 @@ function AuthScreen() {
       return "Incorrect email or password. Check your details or create a new account.";
     }
     if (raw.toLowerCase().includes("email not confirmed")) {
-      return "Confirm your email using the link Supabase sent you, then sign in.";
+      return "This email account still needs confirmation in Supabase. Use Google sign-in for new accounts, or disable email confirmations in Supabase.";
     }
     return raw;
   };
@@ -1780,18 +1539,21 @@ function AuthScreen() {
     resetFeedback();
     setBusy(true);
     try {
-      if (passwordMode === "signup") {
-        const data = await signUpWithPassword(email, password, fullName);
-        if (!data.session) {
-          setMessage("Account created. Check your email to confirm the account, then sign in.");
-          setPasswordMode("signin");
-        }
-      } else {
-        await signInWithPassword(email, password);
-      }
+      await signInWithPassword(email, password);
     } catch (err) {
       setError(friendlyAuthError(err, "Authentication failed"));
     } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitGoogle = async () => {
+    resetFeedback();
+    setBusy(true);
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      setError(friendlyAuthError(err, "Google sign-in failed"));
       setBusy(false);
     }
   };
@@ -1849,20 +1611,23 @@ function AuthScreen() {
             <form onSubmit={submitPassword}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
                 <div>
-                  <h2 style={{ color: "#fff", fontSize: 18, margin: "0 0 4px" }}>{passwordMode === "signup" ? "Create account" : "Welcome back"}</h2>
-                  <p style={{ color: C.muted, fontSize: 12, margin: 0 }}>{passwordMode === "signup" ? "Register using email and password" : "Sign in using your account password"}</p>
+                  <h2 style={{ color: "#fff", fontSize: 18, margin: "0 0 4px" }}>Welcome back</h2>
+                  <p style={{ color: C.muted, fontSize: 12, margin: 0 }}>Sign in using your account password</p>
                 </div>
               </div>
-              {passwordMode === "signup" && (
-                <input aria-label="Full name" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Full name" required style={{ ...inputStyle, marginBottom: 12 }} />
-              )}
               <input aria-label="Email address" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email address" autoComplete="email" required style={{ ...inputStyle, marginBottom: 12 }} />
-              <input aria-label="Password" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" autoComplete={passwordMode === "signup" ? "new-password" : "current-password"} minLength={6} required style={{ ...inputStyle, marginBottom: 14 }} />
+              <input aria-label="Password" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" autoComplete="current-password" minLength={6} required style={{ ...inputStyle, marginBottom: 14 }} />
               <button disabled={busy} type="submit" style={{ width: "100%", border: "none", borderRadius: 10, padding: 12, background: busy ? C.muted : C.accent, color: "#001018", fontWeight: 800, cursor: busy ? "wait" : "pointer" }}>
-                {busy ? "Please wait…" : passwordMode === "signup" ? "Create account" : "Sign in"}
+                {busy ? "Please wait..." : "Sign in"}
               </button>
-              <button type="button" onClick={() => { setPasswordMode(mode => mode === "signin" ? "signup" : "signin"); resetFeedback(); }} style={{ width: "100%", border: "none", background: "transparent", color: C.accent, padding: "12px 0 0", cursor: "pointer", fontSize: 12 }}>
-                {passwordMode === "signup" ? "Already registered? Sign in" : "New user? Create an account"}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "16px 0" }}>
+                <span style={{ height: 1, background: C.border, flex: 1 }} />
+                <span style={{ color: C.muted, fontSize: 11 }}>NEW ACCOUNT</span>
+                <span style={{ height: 1, background: C.border, flex: 1 }} />
+              </div>
+              <button disabled={busy} type="button" onClick={submitGoogle} style={{ width: "100%", border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, background: "#fff", color: "#111827", fontWeight: 800, cursor: busy ? "wait" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                <span style={{ width: 18, height: 18, borderRadius: "50%", display: "inline-grid", placeItems: "center", color: "#4285F4", fontWeight: 900 }}>G</span>
+                Sign in with Google
               </button>
             </form>
           ) : (
@@ -1890,18 +1655,171 @@ function AuthScreen() {
   );
 }
 
+function ProfileSetupScreen({ user, onComplete, onSignOut }) {
+  const [form, setForm] = useState({
+    full_name: user?.user_metadata?.full_name || user?.user_metadata?.name || "",
+    company: user?.user_metadata?.company || "",
+    job_title: user?.user_metadata?.job_title || "",
+    phone: user?.phone || user?.user_metadata?.phone || "",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Kolkata",
+  });
+  const [busy, setBusy] = useState(false);
+  const [phoneOtp, setPhoneOtp] = useState("");
+  const [phoneOtpSent, setPhoneOtpSent] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(() => Boolean(user?.phone));
+  const [phoneBusy, setPhoneBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const inputStyle = {
+    width: "100%",
+    background: "#ffffff08",
+    border: `1px solid ${C.border}`,
+    borderRadius: 10,
+    padding: "12px 14px",
+    color: C.text,
+    fontSize: 14,
+    outline: "none",
+  };
+
+  const setField = (key, value) => {
+    setForm(current => ({ ...current, [key]: value }));
+    if (key === "phone") {
+      setPhoneVerified(Boolean(user?.phone && value.trim() === user.phone));
+      setPhoneOtpSent(false);
+      setPhoneOtp("");
+    }
+  };
+
+  const requestPhoneOtp = async () => {
+    const cleanPhone = form.phone.replace(/\s/g, "");
+    setError("");
+    if (!PHONE_E164.test(cleanPhone)) {
+      setError("Enter phone in international format, for example +919876543210.");
+      return;
+    }
+    setPhoneBusy(true);
+    try {
+      await sendPhoneChangeOtp(cleanPhone);
+      setForm(current => ({ ...current, phone: cleanPhone }));
+      setPhoneOtpSent(true);
+    } catch (err) {
+      setError(err?.message || "Could not send phone verification OTP.");
+    } finally {
+      setPhoneBusy(false);
+    }
+  };
+
+  const confirmPhoneOtp = async () => {
+    const cleanPhone = form.phone.replace(/\s/g, "");
+    setError("");
+    setPhoneBusy(true);
+    try {
+      await verifyPhoneChangeOtp(cleanPhone, phoneOtp);
+      setPhoneVerified(true);
+      setPhoneOtpSent(false);
+      setPhoneOtp("");
+    } catch (err) {
+      setError(err?.message || "Invalid phone verification code.");
+    } finally {
+      setPhoneBusy(false);
+    }
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      const cleanProfile = Object.fromEntries(
+        Object.entries(form).map(([key, value]) => [key, value.trim()])
+      );
+      if (cleanProfile.phone) {
+        cleanProfile.phone = cleanProfile.phone.replace(/\s/g, "");
+        if (!PHONE_E164.test(cleanProfile.phone)) {
+          throw new Error("Enter phone in international format, for example +919876543210.");
+        }
+        if (!phoneVerified) {
+          throw new Error("Verify your phone number with OTP, or leave phone blank.");
+        }
+      }
+      const updatedUser = await updateUserProfile(cleanProfile);
+      localStorage.setItem(profileStorageKey(user.id), "true");
+      onComplete(updatedUser);
+    } catch (err) {
+      setError(err?.message || "Profile could not be saved. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, display: "grid", placeItems: "center", padding: 20, fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" }}>
+      <form onSubmit={submit} style={{ width: "100%", maxWidth: 560, background: `${C.bgCard}F2`, border: `1px solid ${C.border}`, borderRadius: 18, padding: 24, boxShadow: "0 24px 70px rgba(0,0,0,.4)" }}>
+        <div style={{ marginBottom: 22 }}>
+          <p style={{ color: C.accent, fontSize: 12, margin: "0 0 8px", letterSpacing: "0.1em", textTransform: "uppercase" }}>Profile Setup</p>
+          <h1 style={{ color: "#fff", fontSize: 24, margin: "0 0 8px" }}>Tell us about you</h1>
+          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Complete these details before entering the dashboard.</p>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ color: C.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em" }}>Full Name</span>
+            <input value={form.full_name} onChange={e => setField("full_name", e.target.value)} required autoComplete="name" style={inputStyle} />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ color: C.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em" }}>Company</span>
+            <input value={form.company} onChange={e => setField("company", e.target.value)} required autoComplete="organization" style={inputStyle} />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ color: C.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em" }}>Job Title <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span>
+            <input value={form.job_title} onChange={e => setField("job_title", e.target.value)} autoComplete="organization-title" style={inputStyle} />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ color: C.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em" }}>Phone <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span>
+            <input value={form.phone} onChange={e => setField("phone", e.target.value.replace(/[^\d+ -]/g, ""))} placeholder="+919876543210" autoComplete="tel" style={inputStyle} />
+          </label>
+          {form.phone.trim() && (
+            <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: phoneOtpSent ? "minmax(0, 1fr) auto auto" : "minmax(0, 1fr) auto", gap: 10, alignItems: "end" }}>
+              <p style={{ color: phoneVerified ? C.success : C.muted, fontSize: 12, margin: 0 }}>
+                {phoneVerified ? "Phone verified" : "Verify this phone number before continuing."}
+              </p>
+              {phoneOtpSent && (
+                <input aria-label="Phone verification OTP" inputMode="numeric" value={phoneOtp} onChange={e => setPhoneOtp(e.target.value.replace(/\D/g, "").slice(0, 8))} placeholder="OTP" style={{ ...inputStyle, maxWidth: 130, textAlign: "center" }} />
+              )}
+              {!phoneVerified && (
+                <button type="button" onClick={phoneOtpSent ? confirmPhoneOtp : requestPhoneOtp} disabled={phoneBusy} style={{ background: `${C.accent}22`, border: `1px solid ${C.accent}44`, color: C.accent, borderRadius: 9, padding: "10px 14px", fontSize: 12, fontWeight: 700, cursor: phoneBusy ? "wait" : "pointer" }}>
+                  {phoneBusy ? "Wait..." : phoneOtpSent ? "Verify OTP" : "Send OTP"}
+                </button>
+              )}
+            </div>
+          )}
+          <label style={{ display: "grid", gap: 6, gridColumn: "1 / -1" }}>
+            <span style={{ color: C.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em" }}>Timezone</span>
+            <input value={form.timezone} onChange={e => setField("timezone", e.target.value)} required style={inputStyle} />
+          </label>
+        </div>
+        {error && <p role="alert" style={{ color: C.danger, background: "#FF5C5C12", border: "1px solid #FF5C5C33", padding: "10px 12px", borderRadius: 8, fontSize: 12, margin: "16px 0 0" }}>{error}</p>}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 22, flexWrap: "wrap" }}>
+          <button type="button" onClick={onSignOut} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 10, padding: "11px 18px", color: C.muted, cursor: "pointer" }}>Sign out</button>
+          <button disabled={busy} type="submit" style={{ background: busy ? C.muted : C.accent, color: "#001018", border: "none", borderRadius: 10, padding: "11px 22px", fontWeight: 800, cursor: busy ? "wait" : "pointer" }}>
+            {busy ? "Saving..." : "Continue to dashboard"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function VisionRetainAI() {
   const [section, setSection] = useState("overview");
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [customers, setCustomers] = useState(CUSTOMERS);
-  const [kpis, setKpis] = useState(KPI_DATA);
-  const [notifications] = useState([
-    { type: "danger", msg: "Critical: Karan Verma — 95% churn risk" },
-    { type: "warning", msg: "Price drop: Sony XM5 at ₹26,999 on Amazon" },
-    { type: "success", msg: "Demand forecast updated for Q3" },
-  ]);
+  const [profileComplete, setProfileComplete] = useState(false);
+  const compact = useIsCompactScreen();
+  const [customers, setCustomers] = useState([]);
+  const [kpis, setKpis] = useState([]);
+  const [dashboardError, setDashboardError] = useState("");
+  const notifications = [];
   const [showNotif, setShowNotif] = useState(false);
   const [systemHealth, setSystemHealth] = useState({
     backend: false,
@@ -1926,7 +1844,10 @@ export default function VisionRetainAI() {
     let subscription;
     getSession()
       .then(currentSession => {
-        if (mounted) setSession(currentSession);
+        if (mounted) {
+          setSession(currentSession);
+          setProfileComplete(isProfileComplete(currentSession?.user));
+        }
       })
       .catch(() => {
         if (mounted) setSession(null);
@@ -1938,6 +1859,7 @@ export default function VisionRetainAI() {
       const result = onAuthStateChange(nextSession => {
         if (mounted) {
           setSession(nextSession);
+          setProfileComplete(isProfileComplete(nextSession?.user));
           setAuthLoading(false);
           if (nextSession) setSection("overview");
         }
@@ -1955,23 +1877,23 @@ export default function VisionRetainAI() {
   useEffect(() => {
     if (!session?.access_token) return;
     let active = true;
-    fetch(`${ML_BASE_URL}/api/v1/dashboard`, {
+    fetch(apiEndpoint("/api/v1/dashboard"), {
       headers: { Authorization: `Bearer ${session.access_token}` },
     })
-      .then(response => response.ok ? response.json() : Promise.reject())
+      .then(readApiResponse)
       .then(data => {
         if (!active) return;
-        if (data.customers?.length) {
-          setCustomers(data.customers.map(customer => ({
-            ...customer,
-            spend: Number(customer.spend),
-            churn: Number(customer.churn),
-            ltv: Number(customer.ltv),
-            nps: Number(customer.nps),
-            tenure: Number(customer.tenure),
-            lastActive: customer.last_active,
-          })));
-        }
+        setDashboardError("");
+        const liveCustomers = (data.customers || []).map(customer => ({
+          ...customer,
+          spend: Number(customer.spend || 0),
+          churn: Number(customer.churn || 0),
+          ltv: Number(customer.ltv || 0),
+          nps: Number(customer.nps || 0),
+          tenure: Number(customer.tenure || 0),
+          lastActive: customer.last_active,
+        }));
+        setCustomers(liveCustomers);
         if (data.metrics?.length) {
           setKpis(data.metrics.map(metric => ({
             label: metric.label,
@@ -1981,9 +1903,16 @@ export default function VisionRetainAI() {
             icon: metric.icon,
             format: metric.format,
           })));
+        } else {
+          setKpis(deriveMetrics(liveCustomers));
         }
       })
-      .catch(() => {});
+      .catch(err => {
+        if (!active) return;
+        setCustomers([]);
+        setKpis([]);
+        setDashboardError(err?.message || "Could not load live dashboard data.");
+      });
     return () => { active = false; };
   }, [session?.access_token]);
 
@@ -1991,9 +1920,8 @@ export default function VisionRetainAI() {
     let active = true;
     const checkHealth = async () => {
       try {
-        const response = await fetch(`${ML_BASE_URL}/health`);
-        if (!response.ok) throw new Error("Backend unhealthy");
-        const data = await response.json();
+        const response = await fetch(healthEndpoint);
+        const data = await readApiResponse(response);
         if (active) {
           setSystemHealth({
             backend: true,
@@ -2017,14 +1945,26 @@ export default function VisionRetainAI() {
   }, []);
 
   const allSystemsLive = systemHealth.backend && systemHealth.vision && systemHealth.prices && systemHealth.supabase;
+  const liveKpis = kpis.length ? kpis : deriveMetrics(customers);
+  const liveRiskDistribution = riskDistribution(customers);
+  const highRiskCustomers = customers.filter(c => c.risk === "Critical" || c.risk === "High");
 
   const handleSignOut = async () => {
     try {
       await signOut();
     } finally {
       setSession(null);
+      setProfileComplete(false);
       setSection("overview");
     }
+  };
+
+  const handleProfileUpdated = (updatedUser) => {
+    setSession(current => current
+      ? { ...current, user: { ...current.user, ...updatedUser } }
+      : current
+    );
+    setProfileComplete(true);
   };
 
   const sectionTitles = {
@@ -2048,8 +1988,18 @@ export default function VisionRetainAI() {
 
   if (!session) return <AuthScreen />;
 
+  if (!profileComplete) {
+    return (
+      <ProfileSetupScreen
+        user={authUser}
+        onComplete={handleProfileUpdated}
+        onSignOut={handleSignOut}
+      />
+    );
+  }
+
   return (
-    <div style={{ background: C.bg, minHeight: "100vh", display: "flex", fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', sans-serif", color: C.text }}>
+    <div style={{ background: C.bg, minHeight: "100vh", display: "flex", flexDirection: compact ? "column" : "row", fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', sans-serif", color: C.text }}>
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes pulse { to { opacity: 0.3; transform: scale(0.8); } }
@@ -2060,8 +2010,8 @@ export default function VisionRetainAI() {
       `}</style>
 
       {/* Sidebar */}
-      <div style={{ width: 220, background: C.bgSec, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", flexShrink: 0, position: "sticky", top: 0, height: "100vh", overflowY: "auto" }}>
-        <div style={{ padding: "18px 16px", borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ width: compact ? "100%" : 220, background: C.bgSec, borderRight: compact ? "none" : `1px solid ${C.border}`, borderBottom: compact ? `1px solid ${C.border}` : "none", display: "flex", flexDirection: compact ? "row" : "column", flexShrink: 0, position: "sticky", top: 0, height: compact ? "auto" : "100vh", maxHeight: compact ? "46vh" : "100vh", overflowY: compact ? "hidden" : "auto", overflowX: compact ? "auto" : "hidden", zIndex: 20 }}>
+        <div style={{ padding: compact ? "12px 14px" : "18px 16px", borderBottom: compact ? "none" : `1px solid ${C.border}`, borderRight: compact ? `1px solid ${C.border}` : "none", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`, display: "flex", alignItems: "center", justifyContent: "center", color: "#000", fontWeight: 900, fontSize: 14 }}>V</div>
             <div>
@@ -2070,15 +2020,15 @@ export default function VisionRetainAI() {
             </div>
           </div>
         </div>
-        <nav style={{ padding: "10px 10px", flex: 1 }}>
+        <nav style={{ padding: "10px 10px", flex: 1, display: compact ? "flex" : "block", gap: compact ? 6 : 0, minWidth: compact ? "max-content" : 0 }}>
           {NAV.map(item => (
-            <button key={item.id} onClick={() => setSection(item.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, marginBottom: 2, cursor: "pointer", background: section === item.id ? `${C.accent}18` : "transparent", border: `1px solid ${section === item.id ? C.accent + "44" : "transparent"}`, color: section === item.id ? C.accent : C.muted, fontSize: 13, fontWeight: section === item.id ? 600 : 400, textAlign: "left", transition: "all 0.15s" }}>
+            <button key={item.id} onClick={() => setSection(item.id)} style={{ width: compact ? "auto" : "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, marginBottom: compact ? 0 : 2, cursor: "pointer", background: section === item.id ? `${C.accent}18` : "transparent", border: `1px solid ${section === item.id ? C.accent + "44" : "transparent"}`, color: section === item.id ? C.accent : C.muted, fontSize: 13, fontWeight: section === item.id ? 600 : 400, textAlign: "left", transition: "all 0.15s", whiteSpace: "nowrap" }}>
               <span style={{ fontSize: 15 }}>{item.icon}</span>
               {item.label}
             </button>
           ))}
         </nav>
-        <div style={{ padding: "12px 16px", borderTop: `1px solid ${C.border}` }}>
+        <div style={{ padding: "12px 16px", borderTop: compact ? "none" : `1px solid ${C.border}`, borderLeft: compact ? `1px solid ${C.border}` : "none", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 30, height: 30, borderRadius: "50%", background: `linear-gradient(135deg, ${C.purple}, ${C.pink})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700 }}>{userInitials}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -2090,11 +2040,11 @@ export default function VisionRetainAI() {
       </div>
 
       {/* Main */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Topbar */}
-        <div style={{ height: 56, background: C.bgSec, borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 24px", flexShrink: 0 }}>
+        <div style={{ minHeight: 56, background: C.bgSec, borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: compact ? "flex-start" : "center", justifyContent: "space-between", padding: compact ? "12px 14px" : "0 24px", flexShrink: 0, gap: 12, flexWrap: "wrap" }}>
           <h2 style={{ color: "#fff", margin: 0, fontSize: 16, fontWeight: 700 }}>{sectionTitles[section] || section}</h2>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <div title={`Backend: ${systemHealth.backend ? "online" : "offline"} · Vision: ${systemHealth.vision ? "configured" : "missing key"} · Prices: ${systemHealth.prices ? "configured" : "missing key"} · Supabase: ${systemHealth.supabase ? "configured" : "offline"}`} style={{ background: allSystemsLive ? "#00FF8814" : "#FFC85714", border: `1px solid ${allSystemsLive ? C.success : C.warning}33`, borderRadius: 20, padding: "4px 12px", display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: allSystemsLive ? C.success : C.warning, display: "inline-block" }} />
               <span style={{ color: allSystemsLive ? C.success : C.warning, fontSize: 11, fontWeight: 600 }}>
@@ -2103,9 +2053,10 @@ export default function VisionRetainAI() {
             </div>
             <div style={{ position: "relative" }}>
               <button onClick={() => setShowNotif(!showNotif)} style={{ background: "#ffffff08", border: `1px solid ${C.border}`, borderRadius: 8, width: 34, height: 34, cursor: "pointer", color: C.text, fontSize: 14 }}>🔔</button>
-              <span style={{ position: "absolute", top: -3, right: -3, width: 15, height: 15, borderRadius: "50%", background: C.danger, fontSize: 8, fontWeight: 700, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>3</span>
+              {notifications.length > 0 && <span style={{ position: "absolute", top: -3, right: -3, width: 15, height: 15, borderRadius: "50%", background: C.danger, fontSize: 8, fontWeight: 700, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>{notifications.length}</span>}
               {showNotif && (
                 <div style={{ position: "absolute", top: 42, right: 0, width: 300, background: C.bgSec, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, zIndex: 100, boxShadow: "0 20px 40px rgba(0,0,0,0.5)" }}>
+                  {notifications.length === 0 && <p style={{ color: C.muted, fontSize: 12, margin: 0 }}>No live notifications.</p>}
                   {notifications.map((n, i) => (
                     <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px", borderRadius: 8, marginBottom: 4, background: "#ffffff04" }}>
                       <span style={{ width: 7, height: 7, borderRadius: "50%", marginTop: 4, flexShrink: 0, background: n.type === "danger" ? C.danger : n.type === "warning" ? C.warning : C.success }} />
@@ -2119,44 +2070,29 @@ export default function VisionRetainAI() {
           </div>
         </div>
 
-        {/* Ticker */}
-        <div style={{ height: 32, background: "#00E5FF06", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", padding: "0 24px", gap: 32, overflowX: "auto", flexShrink: 0 }}>
-          {[
-            { label: "Churn Alert", val: "Karan Verma 95%", color: C.danger },
-            { label: "Price Drop", val: "Sony XM5 ₹26,999", color: C.warning },
-            { label: "AI Scan", val: "iPhone 15 Pro 99.1%", color: C.success },
-            { label: "Revenue Risk", val: "₹34.2L at risk", color: C.danger },
-            { label: "Sentiment", val: "Amazon +72% pos", color: C.accent },
-            { label: "Forecast", val: "Demand ↑ 14.2%", color: C.purple },
-          ].map((t, i) => (
-            <div key={i} style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
-              <span style={{ color: C.muted, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t.label}</span>
-              <span style={{ color: t.color, fontSize: 11, fontWeight: 600 }}>{t.val}</span>
-            </div>
-          ))}
-        </div>
+        {dashboardError && (
+          <div style={{ background: "#FF5C5C12", borderBottom: `1px solid ${C.danger}33`, color: C.danger, padding: compact ? "8px 14px" : "8px 24px", fontSize: 12 }}>
+            {dashboardError}
+          </div>
+        )}
 
         {/* Content */}
-        <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: compact ? 14 : 24, minWidth: 0 }}>
 
           {section === "overview" && (
             <div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
-                {kpis.map((k, i) => <KPICard key={i} {...k} active={true} />)}
+              <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "repeat(4, minmax(0, 1fr))", gap: 14, marginBottom: 20 }}>
+                {liveKpis.map((k, i) => <KPICard key={i} {...k} active={true} />)}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 18, marginBottom: 18 }}>
+              <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "minmax(0, 1.4fr) minmax(0, 1fr)", gap: 18, marginBottom: 18 }}>
                 <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
-                  <p style={{ color: C.accent, fontSize: 12, margin: "0 0 16px", letterSpacing: "0.1em", textTransform: "uppercase" }}>Demand Forecast — 90 Day View</p>
-                  <DemandChart />
+                  <p style={{ color: C.accent, fontSize: 12, margin: "0 0 16px", letterSpacing: "0.1em", textTransform: "uppercase" }}>Live Data Status</p>
+                  <p style={{ color: C.text, fontSize: 15, fontWeight: 700, margin: "0 0 8px" }}>{customers.length.toLocaleString()} live customer rows</p>
+                  <p style={{ color: C.muted, fontSize: 13, lineHeight: 1.6, margin: 0 }}>Charts and forecasts are shown only when matching live time-series endpoints are connected.</p>
                 </div>
                 <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
                   <p style={{ color: C.accent, fontSize: 12, margin: "0 0 16px", letterSpacing: "0.1em", textTransform: "uppercase" }}>Risk Distribution</p>
-                  {[
-                    { label: "Critical", count: 284, pct: 10, color: C.danger },
-                    { label: "High", count: 1124, pct: 40, color: C.warning },
-                    { label: "Medium", count: 842, pct: 30, color: C.accent },
-                    { label: "Low", count: 591, pct: 21, color: C.success },
-                  ].map(r => (
+                  {liveRiskDistribution.map(r => (
                     <div key={r.label} style={{ marginBottom: 14 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                         <span style={{ color: C.text, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
@@ -2172,37 +2108,14 @@ export default function VisionRetainAI() {
                   ))}
                 </div>
               </div>
-              {/* Revenue + Sentiment quick view */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
-                <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
-                  <p style={{ color: C.accent, fontSize: 12, margin: "0 0 16px", letterSpacing: "0.1em", textTransform: "uppercase" }}>Revenue Trend</p>
-                  <RevenueChart />
-                </div>
-                <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
-                  <p style={{ color: C.accent, fontSize: 12, margin: "0 0 16px", letterSpacing: "0.1em", textTransform: "uppercase" }}>Sentiment Overview</p>
-                  {SENTIMENT_DATA.slice(0, 4).map(s => (
-                    <div key={s.platform} style={{ marginBottom: 12 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ color: C.text, fontSize: 12 }}>{s.platform.split("/")[0]}</span>
-                        <span style={{ color: s.trend.startsWith("+") ? C.success : C.danger, fontSize: 11, fontWeight: 600 }}>{s.trend}</span>
-                      </div>
-                      <div style={{ display: "flex", height: 5, borderRadius: 4, overflow: "hidden" }}>
-                        <div style={{ width: `${s.positive}%`, background: C.success }} />
-                        <div style={{ width: `${s.neutral}%`, background: C.muted }} />
-                        <div style={{ width: `${s.negative}%`, background: C.danger }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+              <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, overflowX: "auto" }}>
                 <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between" }}>
                   <p style={{ color: C.accent, fontSize: 12, margin: 0, letterSpacing: "0.1em", textTransform: "uppercase" }}>High-Risk Customers</p>
                   <button onClick={() => setSection("customers")} style={{ background: "transparent", border: "none", color: C.accent, fontSize: 12, cursor: "pointer" }}>View all →</button>
                 </div>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <tbody>
-                    {customers.filter(c => c.risk === "Critical" || c.risk === "High").slice(0, 4).map(c => (
+                    {highRiskCustomers.slice(0, 4).map(c => (
                       <tr key={c.id} style={{ borderBottom: `1px solid ${C.border}` }}>
                         <td style={{ padding: "10px 20px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -2222,6 +2135,9 @@ export default function VisionRetainAI() {
                     ))}
                   </tbody>
                 </table>
+                {highRiskCustomers.length === 0 && (
+                  <div style={{ padding: 20, color: C.muted, fontSize: 13 }}>No high-risk customers in the live database.</div>
+                )}
               </div>
             </div>
           )}
@@ -2230,35 +2146,15 @@ export default function VisionRetainAI() {
           {section === "customers" && <CustomersModule customers={customers} />}
           {section === "churn" && <ChurnModule customers={customers} />}
           {section === "sentiment" && <SentimentModule />}
-          {section === "revenue" && <RevenueModule />}
+          {section === "revenue" && <RevenueModule customers={customers} />}
           {section === "copilot" && <CopilotModule />}
           {section === "reports" && <ReportsModule />}
 
           {section === "demand" && (
-            <div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 20 }}>
-                {[
-                  { label: "7-Day Forecast", value: "2,100 units", delta: "+7.7%", color: C.accent },
-                  { label: "30-Day Forecast", value: "8,840 units", delta: "+12.3%", color: C.success },
-                  { label: "90-Day Forecast", value: "24,200 units", delta: "+14.2%", color: C.warning },
-                ].map(k => (
-                  <div key={k.label} style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
-                    <p style={{ color: C.muted, fontSize: 12, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.08em" }}>{k.label}</p>
-                    <p style={{ color: "#fff", fontSize: 24, fontWeight: 700, margin: "0 0 8px" }}>{k.value}</p>
-                    <span style={{ color: C.success, fontSize: 13, fontWeight: 600 }}>{k.delta}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
-                <p style={{ color: C.accent, fontSize: 12, margin: "0 0 20px", letterSpacing: "0.1em", textTransform: "uppercase" }}>Sales Demand Forecast — Actual vs Predicted</p>
-                <DemandChart />
-                <div style={{ marginTop: 20, padding: "14px 16px", background: "#7C3AED14", borderRadius: 10, border: `1px solid ${C.purple}33` }}>
-                  <p style={{ color: C.text, fontSize: 13, margin: 0 }}>
-                    ✦ <strong>AI Insight:</strong> Q3 shows strong upward trend driven by festive season demand. Sony audio and Apple devices projected to outperform category average by 18%. Consider increasing inventory levels by end of July.
-                  </p>
-                </div>
-              </div>
-            </div>
+            <EmptyState
+              title="No live demand forecast connected"
+              message="Demand forecasting requires real sales/order time-series data. Static forecast cards and charts have been removed."
+            />
           )}
 
           {section === "price" && (
@@ -2272,7 +2168,7 @@ export default function VisionRetainAI() {
             </div>
           )}
 
-          {section === "settings" && <SettingsModule />}
+          {section === "settings" && <SettingsModule user={authUser} onProfileUpdated={handleProfileUpdated} />}
         </div>
       </div>
     </div>
