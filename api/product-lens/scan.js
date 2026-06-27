@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import {
+  isMissingColumn,
   json,
   parseGeminiJson,
   requireUser,
@@ -94,7 +95,7 @@ export default async function handler(request, response) {
   }
 
   const prices = listings.map(item => item.price);
-  const scan = await supabaseInsert("product_scans", {
+  const scanPayload = {
     owner_id: user.id,
     image_sha256: crypto.createHash("sha256").update(imageBytes).digest("hex"),
     product_name: identification.product_name,
@@ -111,27 +112,65 @@ export default async function handler(request, response) {
     currency: listings[0]?.currency || null,
     prices_fetched_at: listings.length ? fetchedAt : null,
     provider_metadata: { vision_model: model, price_status: priceStatus },
-  });
-  if (scan) {
-    await Promise.all(listings.map(item => supabaseInsert("price_listings", {
-      scan_id: scan.id,
-      owner_id: user.id,
-      store: item.store,
-      title: item.title,
-      price: item.price,
-      currency: item.currency,
-      product_url: item.product_url,
-      source_url: item.source_url,
-      availability: item.availability,
-      rating: item.rating,
-      relevance: item.relevance,
-      fetched_at: fetchedAt,
-    })));
+  };
+  let scan;
+  let persistence = { status: "saved", message: null };
+  try {
+    scan = await supabaseInsert("product_scans", scanPayload);
+  } catch (error) {
+    if (isMissingColumn(error, "owner_id")) {
+      const { owner_id, ...legacyPayload } = scanPayload;
+      try {
+        scan = await supabaseInsert("product_scans", legacyPayload);
+      } catch (legacyError) {
+        console.error("Legacy product scan persistence failed", legacyError);
+        persistence = {
+          status: "unavailable",
+          message: "Scan history is not connected yet. Run supabase/product_lens_setup.sql in the Supabase SQL Editor to save future scans.",
+        };
+      }
+    } else {
+      console.error("Product scan persistence failed", error);
+      persistence = {
+        status: "unavailable",
+        message: "Scan history is not connected yet. Run supabase/product_lens_setup.sql in the Supabase SQL Editor to save future scans.",
+      };
+    }
+  }
+  if (scan?.id) {
+    try {
+      await Promise.all(listings.map(async item => {
+        const listingPayload = {
+          scan_id: scan.id,
+          owner_id: user.id,
+          store: item.store,
+          title: item.title,
+          price: item.price,
+          currency: item.currency,
+          product_url: item.product_url,
+          source_url: item.source_url,
+          availability: item.availability,
+          rating: item.rating,
+          relevance: item.relevance,
+          fetched_at: fetchedAt,
+        };
+        try {
+          return await supabaseInsert("price_listings", listingPayload);
+        } catch (error) {
+          if (!isMissingColumn(error, "owner_id")) throw error;
+          const { owner_id, ...legacyListingPayload } = listingPayload;
+          return supabaseInsert("price_listings", legacyListingPayload);
+        }
+      }));
+    } catch (error) {
+      console.error("Some price listings could not be persisted", error);
+    }
   }
   json(response, 200, {
-    scan_id: scan?.id || null,
+    scan_id: scan?.id || `unsaved-${Date.now()}`,
     identification,
     pricing: { status: priceStatus, message: priceMessage, fetched_at: listings.length ? fetchedAt : null, listings },
+    persistence,
     accuracy_note: "Exact identity requires visible model/SKU evidence. Verify retailer titles before purchase.",
   });
 }

@@ -370,7 +370,7 @@ function ChurnBar({ factor, impact, direction }) {
 }
 
 // ─── Product Lens Module (REAL AI image analysis) ─────────────────────────────
-function ProductLensModule() {
+function ProductLensModule({ onScanSaved }) {
   const compact = useIsCompactScreen();
   const [phase, setPhase] = useState("idle"); // idle | scanning | detected | error
   const [selected, setSelected] = useState(null);
@@ -457,7 +457,8 @@ function ProductLensModule() {
         created_at: new Date().toISOString(),
       }, ...current.filter(item => item.id !== result.scan_id)].slice(0, 8));
       setPhase("detected");
-      loadRecentScans();
+      await loadRecentScans();
+      onScanSaved?.();
     } catch (err) {
       clearInterval(progIv);
       const message = err.message === "Failed to fetch"
@@ -1107,48 +1108,30 @@ function ReportsModule() {
 }
 
 // ─── Landing Page ──────────────────────────────────────────────────────────────
-function LandingPage({ onEnter }) {
-  const features = [
-    { icon: "◎", title: "Product Lens AI", desc: "Real AI image recognition. Upload any product photo — get brand, model, specs, and live price comparison instantly." },
-    { icon: "△", title: "Churn Prediction", desc: "XGBoost + Random Forest with SHAP explanations. Identify at-risk customers before they leave." },
-    { icon: "◇", title: "Price Intelligence", desc: "Real-time comparison across Amazon, Flipkart, Croma, Vijay Sales. 6-month price history graphs." },
-    { icon: "▲", title: "Demand Forecasting", desc: "90-day AI forecasts with confidence intervals. Plan inventory and campaigns ahead of the curve." },
-    { icon: "◑", title: "Sentiment Analysis", desc: "Analyze customer reviews, support tickets, and social mentions. Map to churn risk and upsell opportunities." },
-    { icon: "✦", title: "AI Copilot", desc: "Ask your data in plain English. Powered by Claude with full business context and memory." },
-  ];
+function LandingPage({ recentScans, onNavigate }) {
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: "80px 40px", textAlign: "center", position: "relative", flex: 1 }}>
-        <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse at 50% 0%, ${C.accent}12 0%, transparent 60%), radial-gradient(ellipse at 20% 80%, ${C.purple}12 0%, transparent 50%)`, pointerEvents: "none" }} />
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#00E5FF14", border: `1px solid ${C.accent}44`, borderRadius: 20, padding: "6px 16px", marginBottom: 32 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.success, display: "inline-block" }} />
-          <span style={{ color: C.accent, fontSize: 12, fontWeight: 600 }}>Now with Claude Vision · YOLOv8 · XGBoost · Real-time AI</span>
+    <div style={{ display: "grid", gap: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <h2 style={{ color: C.text, margin: "0 0 6px", fontSize: 20 }}>Workspace</h2>
+          <p style={{ color: C.muted, margin: 0, fontSize: 13 }}>Your latest saved project activity.</p>
         </div>
-        <h1 style={{ fontSize: 56, fontWeight: 900, color: "#fff", margin: "0 0 8px", lineHeight: 1.05, letterSpacing: "-0.03em" }}>Predict Churn.</h1>
-        <h1 style={{ fontSize: 56, fontWeight: 900, margin: "0 0 8px", lineHeight: 1.05, letterSpacing: "-0.03em", background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Scan Products.</h1>
-        <h1 style={{ fontSize: 56, fontWeight: 900, color: C.success, margin: "0 0 24px", lineHeight: 1.05, letterSpacing: "-0.03em" }}>Protect Revenue.</h1>
-        <p style={{ color: C.muted, fontSize: 18, maxWidth: 540, margin: "0 auto 40px", lineHeight: 1.7 }}>
-          AI-powered product intelligence and customer retention platform connected to your live data sources.
-        </p>
-        <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 60 }}>
-          <button onClick={onEnter} style={{ background: C.accent, color: "#000", border: "none", borderRadius: 12, padding: "14px 32px", fontSize: 15, fontWeight: 800, cursor: "pointer", boxShadow: `0 0 40px ${C.accent}44` }}>Launch Dashboard →</button>
-          <button onClick={onEnter} style={{ background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 12, padding: "14px 32px", fontSize: 15, cursor: "pointer" }}>Open Workspace</button>
-        </div>
+        <button onClick={() => onNavigate("product-lens")} style={{ background: C.accent, color: "#001018", border: "none", borderRadius: 8, padding: "10px 16px", fontWeight: 800, cursor: "pointer" }}>Scan product</button>
       </div>
-      <div style={{ padding: "0 40px 80px" }}>
-        <p style={{ color: C.accent, fontSize: 12, textAlign: "center", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 40 }}>Platform Capabilities</p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
-          {features.map((f, i) => (
-            <div key={i} style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 24, transition: "all 0.2s" }}>
-              <div style={{ fontSize: 28, marginBottom: 12, color: C.accent }}>{f.icon}</div>
-              <h3 style={{ color: "#fff", fontSize: 16, margin: "0 0 8px", fontWeight: 700 }}>{f.title}</h3>
-              <p style={{ color: C.muted, fontSize: 13, margin: 0, lineHeight: 1.6 }}>{f.desc}</p>
+      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
+        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, color: C.accent, fontSize: 12, textTransform: "uppercase" }}>Recent scans</div>
+        {recentScans.length === 0 ? (
+          <p style={{ color: C.muted, padding: 18, margin: 0, fontSize: 13 }}>No saved scans yet.</p>
+        ) : recentScans.map(scan => (
+          <div key={scan.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", borderBottom: `1px solid ${C.border}` }}>
+            <span style={{ fontSize: 24 }}>{productIcon(scan.category)}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ color: C.text, margin: "0 0 3px", fontSize: 13, fontWeight: 700 }}>{scan.product_name}</p>
+              <p style={{ color: C.muted, margin: 0, fontSize: 11 }}>{scan.brand || scan.category || "Product"} · {new Date(scan.created_at).toLocaleString()}</p>
             </div>
-          ))}
-        </div>
-        <div style={{ textAlign: "center", marginTop: 40 }}>
-          <button onClick={onEnter} style={{ background: "transparent", color: C.accent, border: `1px solid ${C.accent}44`, borderRadius: 12, padding: "12px 28px", fontSize: 14, cursor: "pointer", fontWeight: 600 }}>Explore All Features →</button>
-        </div>
+            <span style={{ color: C.success, fontSize: 12 }}>{Number(scan.confidence || 0).toFixed(1)}%</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1812,6 +1795,7 @@ function ProfileSetupScreen({ user, onComplete, onSignOut }) {
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function VisionRetainAI() {
   const [section, setSection] = useState("overview");
+  const restoringSection = useRef(false);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [profileComplete, setProfileComplete] = useState(false);
@@ -1819,6 +1803,8 @@ export default function VisionRetainAI() {
   const [customers, setCustomers] = useState([]);
   const [kpis, setKpis] = useState([]);
   const [dashboardError, setDashboardError] = useState("");
+  const [recentScans, setRecentScans] = useState([]);
+  const [scanHistoryError, setScanHistoryError] = useState("");
   const notifications = [];
   const [showNotif, setShowNotif] = useState(false);
   const [systemHealth, setSystemHealth] = useState({
@@ -1856,12 +1842,12 @@ export default function VisionRetainAI() {
         if (mounted) setAuthLoading(false);
       });
     try {
-      const result = onAuthStateChange(nextSession => {
+      const result = onAuthStateChange((nextSession, event) => {
         if (mounted) {
           setSession(nextSession);
           setProfileComplete(isProfileComplete(nextSession?.user));
           setAuthLoading(false);
-          if (nextSession) setSection("overview");
+          if (event === "SIGNED_OUT") setSection("overview");
         }
       });
       subscription = result.data.subscription;
@@ -1874,6 +1860,40 @@ export default function VisionRetainAI() {
     };
   }, []);
 
+  const loadRecentScans = useCallback(async () => {
+    if (!session?.access_token) return;
+    try {
+      const response = await fetch(apiEndpoint("/api/v1/product-lens/history?limit=8"), {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const data = await readApiResponse(response);
+      setRecentScans(data.scans || []);
+      setScanHistoryError("");
+    } catch (error) {
+      setScanHistoryError(error.message || "Could not load scan history.");
+    }
+  }, [session?.access_token]);
+
+  useEffect(() => {
+    if (!authUser?.id) return;
+    const savedSection = localStorage.getItem(`visionretain_section_${authUser.id}`);
+    restoringSection.current = true;
+    if (NAV.some(item => item.id === savedSection)) setSection(savedSection);
+  }, [authUser?.id]);
+
+  useEffect(() => {
+    if (!authUser?.id) return;
+    if (restoringSection.current) {
+      restoringSection.current = false;
+      return;
+    }
+    localStorage.setItem(`visionretain_section_${authUser.id}`, section);
+  }, [authUser?.id, section]);
+
+  useEffect(() => {
+    loadRecentScans();
+  }, [loadRecentScans]);
+
   useEffect(() => {
     if (!session?.access_token) return;
     let active = true;
@@ -1883,7 +1903,7 @@ export default function VisionRetainAI() {
       .then(readApiResponse)
       .then(data => {
         if (!active) return;
-        setDashboardError("");
+        setDashboardError(data.setup_warning || "");
         const liveCustomers = (data.customers || []).map(customer => ({
           ...customer,
           spend: Number(customer.spend || 0),
@@ -1968,7 +1988,7 @@ export default function VisionRetainAI() {
   };
 
   const sectionTitles = {
-    overview: "Command Center", "product-lens": "Product Lens AI", price: "Price Intelligence",
+    overview: "Command Center", landing: "Home", "product-lens": "Product Lens AI", price: "Price Intelligence",
     customers: "Customer Management", churn: "Churn Analytics", demand: "Demand Forecasting",
     sentiment: "Sentiment Analysis", revenue: "Revenue Intelligence",
     copilot: "AI Business Copilot", reports: "Reports", settings: "Settings & Configuration"
@@ -2075,6 +2095,11 @@ export default function VisionRetainAI() {
             {dashboardError}
           </div>
         )}
+        {scanHistoryError && (
+          <div style={{ background: "#FFC85712", borderBottom: `1px solid ${C.warning}33`, color: C.warning, padding: compact ? "8px 14px" : "8px 24px", fontSize: 12 }}>
+            {scanHistoryError}
+          </div>
+        )}
 
         {/* Content */}
         <div style={{ flex: 1, overflowY: "auto", padding: compact ? 14 : 24, minWidth: 0 }}>
@@ -2088,6 +2113,7 @@ export default function VisionRetainAI() {
                 <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
                   <p style={{ color: C.accent, fontSize: 12, margin: "0 0 16px", letterSpacing: "0.1em", textTransform: "uppercase" }}>Live Data Status</p>
                   <p style={{ color: C.text, fontSize: 15, fontWeight: 700, margin: "0 0 8px" }}>{customers.length.toLocaleString()} live customer rows</p>
+                  <p style={{ color: C.text, fontSize: 15, fontWeight: 700, margin: "0 0 8px" }}>{recentScans.length.toLocaleString()} recent saved scans</p>
                   <p style={{ color: C.muted, fontSize: 13, lineHeight: 1.6, margin: 0 }}>Charts and forecasts are shown only when matching live time-series endpoints are connected.</p>
                 </div>
                 <div style={{ background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, padding: 20 }}>
@@ -2142,7 +2168,8 @@ export default function VisionRetainAI() {
             </div>
           )}
 
-          {section === "product-lens" && <ProductLensModule />}
+          {section === "landing" && <LandingPage recentScans={recentScans} onNavigate={setSection} />}
+          {section === "product-lens" && <ProductLensModule onScanSaved={loadRecentScans} />}
           {section === "customers" && <CustomersModule customers={customers} />}
           {section === "churn" && <ChurnModule customers={customers} />}
           {section === "sentiment" && <SentimentModule />}
@@ -2163,7 +2190,7 @@ export default function VisionRetainAI() {
                 <p style={{ color: C.accent, fontSize: 12, margin: "0 0 16px", letterSpacing: "0.1em", textTransform: "uppercase" }}>
                   Scan a Product to Compare Prices
                 </p>
-                <ProductLensModule />
+                <ProductLensModule onScanSaved={loadRecentScans} />
               </div>
             </div>
           )}

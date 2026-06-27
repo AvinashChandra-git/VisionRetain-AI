@@ -42,20 +42,46 @@ export async function supabaseSelect(table, query = "") {
   const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
     headers: serviceHeaders(),
   });
-  if (!response.ok) return [];
+  if (!response.ok) {
+    const detail = await response.text();
+    console.error(`Supabase select from ${table} failed`, detail);
+    const error = new Error(`Could not read ${table} from the database`);
+    error.status = response.status;
+    error.detail = detail;
+    throw error;
+  }
   return response.json();
 }
 
 export async function supabaseInsert(table, payload) {
-  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return null;
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) {
+    throw new Error("Supabase persistence is not configured");
+  }
   const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
     method: "POST",
     headers: serviceHeaders("return=representation"),
     body: JSON.stringify(payload),
   });
-  if (!response.ok) return null;
+  if (!response.ok) {
+    const detail = await response.text();
+    console.error(`Supabase insert into ${table} failed`, detail);
+    const error = new Error(`Could not save ${table} to the database`);
+    error.status = response.status;
+    error.detail = detail;
+    throw error;
+  }
   const rows = await response.json();
   return rows[0] || null;
+}
+
+export function isMissingColumn(error, column) {
+  const detail = String(error?.detail || error?.message || "").toLowerCase();
+  return detail.includes("42703") || detail.includes(`'${column.toLowerCase()}'`) || detail.includes(`\"${column.toLowerCase()}\"`);
+}
+
+export function isMissingTable(error, table) {
+  const detail = String(error?.detail || error?.message || "").toLowerCase();
+  return detail.includes("42p01") || detail.includes(table.toLowerCase());
 }
 
 export function parseGeminiJson(text) {

@@ -101,6 +101,39 @@ export async function verifyPhoneOtp(otp, phone) {
   return data;
 }
 
+function getQueryParam(name) {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  return params.get(name);
+}
+
+// Handles Supabase email confirmation links in a SPA.
+// Supabase commonly uses query params like: ?type=signup&token=... or ?type=signup&refresh_token=...
+export async function confirmEmailFromUrl() {
+  assertSupabaseConfigured();
+
+  const type = getQueryParam("type");
+  const token = getQueryParam("token");
+  const refreshToken = getQueryParam("refresh_token");
+
+  if (!type || !token) {
+    return { ok: false, handled: false, error: "Missing type/token in URL" };
+  }
+
+  const verifyPayload = {
+    type,
+    token,
+    // Some Supabase flows include refresh_token; harmless if not used.
+    ...(refreshToken ? { refresh_token: refreshToken } : {}),
+  };
+
+  const { data, error } = await supabase.auth.verifyOtp(verifyPayload);
+
+
+  if (error) throw error;
+  return { ok: true, handled: true, data };
+}
+
 export async function getSession() {
   assertSupabaseConfigured();
   const { data, error } = await supabase.auth.getSession();
@@ -110,7 +143,7 @@ export async function getSession() {
 
 export function onAuthStateChange(callback) {
   assertSupabaseConfigured();
-  return supabase.auth.onAuthStateChange((_event, session) => callback(session));
+  return supabase.auth.onAuthStateChange((event, session) => callback(session, event));
 }
 
 export async function signOut() {

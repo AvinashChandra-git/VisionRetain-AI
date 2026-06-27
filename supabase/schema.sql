@@ -14,6 +14,7 @@ create table if not exists public.dashboard_metrics (
 
 create table if not exists public.customers (
   id text primary key,
+  owner_id uuid references auth.users(id) on delete cascade,
   name text not null,
   email text not null,
   plan text not null,
@@ -27,6 +28,11 @@ create table if not exists public.customers (
   last_active text,
   updated_at timestamptz not null default now()
 );
+
+alter table public.customers
+  add column if not exists owner_id uuid references auth.users(id) on delete cascade;
+create index if not exists customers_owner_updated_idx
+  on public.customers(owner_id, updated_at desc);
 
 create table if not exists public.product_scans (
   id uuid primary key default gen_random_uuid(),
@@ -76,9 +82,28 @@ alter table public.price_listings enable row level security;
 alter table public.dashboard_metrics enable row level security;
 alter table public.customers enable row level security;
 
+drop policy if exists "Users can read their product scans" on public.product_scans;
 create policy "Users can read their product scans"
   on public.product_scans for select
   using (auth.uid() = owner_id);
+drop policy if exists "Users can read their price listings" on public.price_listings;
 create policy "Users can read their price listings"
   on public.price_listings for select
+  using (auth.uid() = owner_id);
+drop policy if exists "Users can read their customers" on public.customers;
+create policy "Users can read their customers"
+  on public.customers for select
+  using (auth.uid() = owner_id);
+drop policy if exists "Users can create their customers" on public.customers;
+create policy "Users can create their customers"
+  on public.customers for insert
+  with check (auth.uid() = owner_id);
+drop policy if exists "Users can update their customers" on public.customers;
+create policy "Users can update their customers"
+  on public.customers for update
+  using (auth.uid() = owner_id)
+  with check (auth.uid() = owner_id);
+drop policy if exists "Users can delete their customers" on public.customers;
+create policy "Users can delete their customers"
+  on public.customers for delete
   using (auth.uid() = owner_id);
