@@ -1,469 +1,249 @@
-# VisionRetain AI — Platform README
+# VisionRetain AI
 
-> **Enterprise-grade AI SaaS for Customer Retention & Product Intelligence**
-> Stack: React · Spring Boot 3 · Python FastAPI · MongoDB · Redis · Google Gemini · Claude AI · XGBoost
+VisionRetain AI is a React + Vercel application for retention analytics, product scanning, price intelligence, and business monitoring. The current production app uses Supabase authentication, Vercel serverless APIs, Google Gemini Vision, SerpApi Google Shopping data, and realistic demo fallback data when the live database has no rows.
 
----
+Production: https://visionretain-ai.vercel.app
 
-## 🚀 What Is VisionRetain AI?
+## Current Stack
 
-VisionRetain AI is a full-stack production platform combining:
+- React 19 + Vite
+- Vercel static hosting and serverless functions
+- Supabase Auth and Postgres
+- Google OAuth through Supabase
+- Google Gemini Vision for Product Lens image analysis
+- SerpApi Google Shopping for current price listings
+- Local realistic demo data fallback for empty dashboards
 
-| Module                   | Description                                                                                              |
-| ------------------------ | -------------------------------------------------------------------------------------------------------- |
-| **Product Lens**         | Real AI image scanning via Google Gemini Vision + YOLOv8 + PaddleOCR                                     |
-| **Price Intelligence**   | Live comparison across Amazon, Flipkart, Croma, Vijay Sales, Reliance Digital with 6-month price history |
-| **Churn Prediction**     | XGBoost + Random Forest ensemble with SHAP explainability                                                |
-| **Demand Forecasting**   | 7/30/90-day forecasts with confidence intervals                                                          |
-| **Customer Analytics**   | K-Means segmentation, LTV prediction, NPS tracking                                                       |
-| **Sentiment Analysis**   | Real-time Claude-powered review analysis with business intent detection                                  |
-| **Revenue Intelligence** | ARR, MRR, NRR, segment revenue, 90-day projections                                                       |
-| **AI Business Copilot**  | Claude-powered natural language business Q&A with full context                                           |
-| **Reports**              | AI-generated executive summaries + PDF/Excel exports                                                     |
-| **Enterprise Dashboard** | Real-time WebSocket-powered KPI command center                                                           |
+## Main Features
 
----
+| Section | Current behavior |
+| --- | --- |
+| Overview | Shows KPI cards, risk distribution, high-risk accounts, and scan/customer counts. Uses live Supabase data first, then demo fallback rows. |
+| Home | Shows latest Product Lens scan activity and a quick action to scan products. |
+| Product Lens | Upload/camera product analysis through Gemini Vision, current shopping matches through SerpApi, and optional persisted scan history in Supabase. |
+| Price Intel | Uses Product Lens scanning flow to compare live shopping listings. |
+| Customers | Shows searchable customer records, segment cards, risk levels, LTV, NPS, spend, and activity. |
+| Churn Analytics | Shows selected customer risk details and calls the live ML endpoint when available. |
+| Demand Forecast | Shows realistic forecast cards and SKU demand data when live time-series data is not connected. |
+| Sentiment | Includes a local text sentiment analyzer plus realistic aggregate cards. |
+| Revenue Intel | Calculates MRR, ARR, revenue at risk, segment revenue, average spend, and a 90-day projection from customer rows. |
+| AI Copilot | Shows realistic executive recommendations while a live AI chat backend is not connected. |
+| Reports | Shows realistic report entries while generated report backend endpoints are not connected. |
+| Settings | Profile update flow, optional phone verification, team/settings UI, and integrations/configuration screens. |
 
-## 📁 Repository Structure
+## Data Mode
+
+The app now supports two data modes:
+
+- **Live mode:** Supabase tables contain rows. Dashboard sections use live rows from the database.
+- **Demo fallback mode:** Supabase tables are empty or not connected. The app displays realistic static demo data so every section looks populated.
+
+Live data automatically replaces demo data when rows are returned from Supabase. No code change is required.
+
+## Repository Structure
 
 ```text
-visionretain/
-├── frontend/                    # React SPA
-│   └── VisionRetain_AI_v2.jsx  # ← Main app (all modules, 1900+ lines)
-│
-├── backend/                     # Spring Boot 3 + Java 17
-│   ├── VisionRetain_Backend.md # Full backend scaffold + code
-│   └── src/...                  # Java controllers, services, repos
-│
-├── ml_service/                  # Python FastAPI ML microservice
-│   └── main.py                  # XGBoost + RF + LR ensemble, demand forecasting
-│
-├── nginx.conf                   # Production Nginx config
-├── docker-compose.yml           # Full stack local/cloud deployment
-└── README.md                    # This file
+.
+├── api/
+│   ├── _lib.js
+│   ├── dashboard.js
+│   ├── health.js
+│   └── product-lens/
+│       ├── history.js
+│       └── scan.js
+├── src/
+│   ├── App.jsx
+│   └── otpAuth.js
+├── supabase/
+│   ├── schema.sql
+│   └── product_lens_setup.sql
+├── vercel.json
+├── package.json
+└── README.md
 ```
 
----
+## Local Development
 
-## ⚡ Quick Start (Local Dev)
+Install dependencies:
 
-### Product Lens setup
+```bash
+npm install
+```
 
-Product Lens now calls the FastAPI backend. It does not expose AI or shopping
-provider secrets in the browser and does not substitute mock products or prices.
+Create local environment variables:
 
 ```bash
 cp .env.example .env
-# Add your rotated Supabase secret, Gemini API key, and SerpApi key.
+```
 
-# Run supabase/schema.sql once in the Supabase SQL editor.
+Start the Vite dev server:
+
+```bash
 npm run dev
-./start_all.sh
 ```
 
-**Google Gemini powers Product Lens image recognition and product identification.**
+Open the local URL printed by Vite, usually:
 
-`GEMINI_API_KEY` powers:
+```text
+http://127.0.0.1:5173
+```
 
-* Product identification
-* Object recognition
-* Product metadata extraction
-* Product image understanding
-
-`SERPAPI_API_KEY` retrieves current Google Shopping listings. Results include a
-fetch time, retailer URL, and title-match score. Missing providers and uncertain
-matches are shown explicitly instead of being fabricated.
-
-The publishable Supabase key is safe for the frontend. `SUPABASE_SECRET_KEY` is
-backend-only and must never use a `VITE_` prefix or be committed.
-
-### Authentication setup
-
-The app opens on authentication and only renders the dashboard after Supabase
-returns a valid session. Supported methods:
-
-* Email and password sign-in
-* Email and password account creation
-* Phone OTP sign-in
-
-In Supabase Dashboard → Authentication → Providers:
-
-1. Enable Email for password authentication.
-2. Enable Phone and configure an SMS provider for OTP delivery.
-3. Add the frontend URL to Authentication → URL Configuration.
-
-The session is persisted by the Supabase client. Dashboard and Product Lens API
-requests include the access token and the FastAPI backend verifies it against
-the configured Supabase JWKS URL.
-
-### Option A — Frontend only
-
-The dashboard can render without the backend, but Product Lens requires FastAPI
-and configured providers for real recognition and live prices.
+Build:
 
 ```bash
-# 1. Create a new Vite + React project
-npm create vite@latest visionretain -- --template react
-cd visionretain
-
-# 2. Copy VisionRetain_AI_v2.jsx to src/App.jsx
-cp VisionRetain_AI_v2.jsx src/App.jsx
-
-# 3. Start dev server
-npm run dev
-
-# → Open http://localhost:5173
+npm run build
 ```
 
-> **Note:** The Anthropic API key is handled by Claude.ai's artifact proxy when running inside Claude. For standalone deployment, add your own key — see API Key Setup below.
-
----
-
-### Option B — Full Stack (Docker Compose)
+Preview production build:
 
 ```bash
-# 1. Clone / download all files
-git clone https://github.com/yourname/visionretain
-
-# 2. Set environment variables
-cp .env.example .env
-
-# Fill in:
-# MONGO_URI
-# REDIS_PASSWORD
-# JWT_SECRET
-# GEMINI_API_KEY
-# ANTHROPIC_API_KEY
-# AWS keys
-
-# 3. Start everything
-docker-compose up --build
-
-# Services:
-# Frontend  → http://localhost:3000
-# API       → http://localhost:8080
-# ML        → http://localhost:8001
-# Swagger   → http://localhost:8080/swagger-ui/index.html
-# MongoDB   → localhost:27017
-# Redis     → localhost:6379
+npm run preview
 ```
 
----
+## Environment Variables
 
-### Option C — ML Microservice only
-
-```bash
-cd ml_service
-
-pip install fastapi uvicorn xgboost scikit-learn pandas numpy redis joblib
-
-uvicorn main:app --host 0.0.0.0 --port 8001 --reload
-
-# Endpoints:
-# POST /predict/churn
-# POST /predict/churn/batch
-# POST /predict/demand
-# POST /predict/ltv
-# POST /segment/customers
-# GET  /metrics
-# POST /retrain
-```
-
----
-
-## 🔑 API Key Setup
-
-### Google Gemini
-
-Used for:
-
-* Product Lens image recognition
-* Product identification
-* Object understanding
-* Product metadata extraction
-
-```bash
-# Get your API key:
-# https://aistudio.google.com/app/apikey
-
-GEMINI_API_KEY=AIza...
-```
-
----
-
-### Anthropic (Claude AI)
-
-Used for:
-
-* AI Business Copilot
-* Sentiment Analysis
-* Executive Summary generation
-* AI-generated retention recommendations
-* Natural language business intelligence
-
-```bash
-# Get your key at:
-# https://console.anthropic.com
-
-ANTHROPIC_API_KEY=sk-ant-api03-...
-```
-
-For standalone React deployment:
+Frontend variables:
 
 ```env
-VITE_ANTHROPIC_API_KEY=sk-ant-api03-...
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your_publishable_key
+VITE_API_BASE_URL=
 ```
 
-Then update the `callClaude` function in `VisionRetain_AI_v2.jsx`:
+Server/API variables:
 
-```javascript
-headers: {
-  "Content-Type": "application/json",
-  "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY,
-  "anthropic-version": "2023-06-01",
-  "anthropic-dangerous-direct-browser-access": "true",
-}
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SECRET_KEY=your_supabase_service_role_or_backend_secret
+SUPABASE_JWKS_URL=https://your-project.supabase.co/auth/v1/.well-known/jwks.json
+
+GEMINI_API_KEY=your_gemini_key
+GEMINI_VISION_MODEL=gemini-2.5-flash
+
+SERPAPI_API_KEY=your_serpapi_key
+PRICE_COUNTRY=in
+PRICE_LANGUAGE=en
 ```
 
----
+Important:
 
-## 🏗️ Architecture Overview
+- Do not expose `SUPABASE_SECRET_KEY`, `GEMINI_API_KEY`, or `SERPAPI_API_KEY` in the browser.
+- Only `VITE_*` values are sent to the frontend.
+- In Vercel, set server secrets in Project Settings → Environment Variables.
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                     Browser / Mobile App                    │
-│           React SPA (Vite + Gemini AI + Claude AI)          │
-└─────────────────────┬──────────────────────┬────────────────┘
-                      │ HTTPS / WSS           │ Direct API
-                      ▼                       ▼
+## Supabase Setup
 
-┌─────────────────────────────┐
-│   Nginx (SSL + Rate Limit)  │
-└─────────────┬───────────────┘
-              │
-    ┌─────────┼──────────────┐
-    ▼         ▼              ▼
+Run the full schema for customer and Product Lens tables:
 
-┌────────┐ ┌──────────┐ ┌────────────┐
-│ Spring │ │  Python  │ │  WebSocket │
-│ Boot 3 │ │ ML Svc   │ │  (STOMP)   │
-│ :8080  │ │ :8001    │ │  Real-time │
-└────┬───┘ └────┬─────┘ └────────────┘
-     │          │
-
-  ┌──┴──┐    ┌──┴──┐
-  │Mongo│    │Redis│
-  │ DB  │    │Cache│
-  └─────┘    └─────┘
-
-External AI Services
-
-┌──────────────────────────┐
-│ Google Gemini Vision API │
-└──────────────────────────┘
-
-┌──────────────────────────┐
-│ Anthropic Claude API     │
-└──────────────────────────┘
+```sql
+-- Supabase SQL Editor
+-- Paste and run supabase/schema.sql
 ```
 
----
+For Product Lens only, run:
 
-## 🔍 Product Lens Architecture
-
-```text
-User Uploads Image
-        │
-        ▼
-    YOLOv8
-(Object Detection)
-        │
-        ▼
-   PaddleOCR
-(Text Extraction)
-        │
-        ▼
- Google Gemini Vision
-(Product Recognition)
-        │
-        ▼
- Product Metadata
-        │
-        ▼
- Google Shopping / SerpAPI
-        │
-        ▼
- Live Price Intelligence
+```sql
+-- Supabase SQL Editor
+-- Paste and run supabase/product_lens_setup.sql
 ```
 
-### Product Lens Capabilities
+Tables used by the current app:
 
-* Product recognition from images
-* Brand detection
-* Model identification
-* OCR-based specification extraction
-* Shopping comparison
-* Retailer matching
-* Confidence scoring
-* Scan history tracking
+- `customers`
+- `product_scans`
+- `price_listings`
 
-All Gemini API calls are processed through the FastAPI backend and never expose secrets to the browser.
+Product scans can still show analysis results if persistence is unavailable, but Recent Scans will only persist after `product_scans` exists.
 
----
+## Authentication
 
-## 🔐 Security Architecture
+Authentication is handled by Supabase.
 
-| Layer              | Implementation                              |
-| ------------------ | ------------------------------------------- |
-| **Authentication** | JWT (access 24h) + Refresh Token (7d)       |
-| **Password**       | BCrypt (cost factor 12)                     |
-| **RBAC**           | Admin · Business Owner · Analyst · Manager  |
-| **API Security**   | Rate limiting (100 rpm global, 10 rpm auth) |
-| **Transport**      | TLS 1.2/1.3 only, HSTS enabled              |
-| **Headers**        | CSP, X-Frame-Options, CORS allowlist        |
-| **Audit**          | All actions logged with user + timestamp    |
-| **Uploads**        | 25MB limit, MIME validation, S3 storage     |
-| **WebSockets**     | JWT token validated on connection upgrade   |
+Supported flows:
 
----
+- Email/password sign-in
+- Email/password account creation
+- Google OAuth sign-in
+- Phone OTP sign-in
+- Optional phone verification from profile/settings
 
-## 📊 ML Model Details
+Supabase configuration checklist:
 
-### Churn Prediction Ensemble
+1. Enable Email provider.
+2. Enable Google provider and add the Google OAuth client credentials.
+3. Add production and local URLs in Supabase Auth URL configuration.
+4. Add the Supabase callback/redirect URL in Google Cloud OAuth settings.
 
-| Model               | Weight | AUC (test) |
-| ------------------- | ------ | ---------- |
-| XGBoost             | 60%    | ~0.91      |
-| Random Forest       | 30%    | ~0.88      |
-| Logistic Regression | 10%    | ~0.82      |
-| **Ensemble**        | —      | **~0.92**  |
+For production, make sure the OAuth redirect does not point to `localhost`.
 
-**Features used (9 total):**
+## Product Lens Flow
 
-1. Engagement Score (0–1)
-2. Days Since Last Active
-3. Support Ticket Volume (30d)
-4. Subscription Duration (months)
-5. Monthly Spend (₹)
-6. NPS Score (-100 to 100)
-7. Feature Adoption Count
-8. Login Frequency (per week)
-9. Plan Type (Starter/Pro/Business/Enterprise)
+1. User uploads an image or opens camera.
+2. `/api/v1/product-lens/scan` verifies the Supabase session.
+3. Gemini Vision identifies the product.
+4. SerpApi fetches current Google Shopping matches when configured.
+5. The API attempts to save the scan into `product_scans`.
+6. The UI shows the analysis even if scan persistence is not ready.
+7. Recent Scans update when persistence succeeds.
 
-**Explainability:** SHAP values computed per prediction — top 6 factors shown in UI.
+## Vercel Deployment
 
-### Demand Forecasting
-
-* Method: Exponential Smoothing (α=0.3) + Linear Trend
-* Horizon: 7 / 30 / 90 days
-* Confidence Intervals: ±15% (30d), ±22% (60d), ±30% (90d)
-* Upgrade path: Drop-in Prophet or LSTM for production
-
----
-
-## 🗄️ Database Schema (MongoDB)
-
-### Collections
-
-| Collection          | Purpose            | Key Indexes                              |
-| ------------------- | ------------------ | ---------------------------------------- |
-| `users`             | Auth, team, RBAC   | email (unique), plan                     |
-| `customers`         | Customer records   | ownerId+riskLevel, churnProbability desc |
-| `product_scans`     | Scan history       | ownerId+scannedAt desc                   |
-| `price_history`     | 6-month price data | productId+platform+recordedAt            |
-| `churn_predictions` | Prediction history | customerId+predictedAt desc              |
-| `demand_forecasts`  | Forecast records   | productId+generatedAt desc               |
-| `conversations`     | AI Copilot history | userId+updatedAt desc                    |
-| `notifications`     | Real-time alerts   | userId+createdAt desc, read status       |
-
----
-
-## 🌐 Deployment Options
-
-### AWS (Recommended for India)
+Deploy production:
 
 ```bash
-# Region: ap-south-1 (Mumbai) for lowest latency
-
-# Services:
-# ECS Fargate
-# DocumentDB or MongoDB Atlas
-# ElastiCache Redis
-# S3 + CloudFront
-# Application Load Balancer
-# Route 53
-# ECR
+npx vercel --prod --yes
 ```
 
-### Google Cloud
+Vercel routes:
+
+- `/api/v1/dashboard` → `api/dashboard.js`
+- `/api/v1/product-lens/scan` → `api/product-lens/scan.js`
+- `/api/v1/product-lens/history` → `api/product-lens/history.js`
+- `/api/health` → `api/health.js`
+
+Health check:
 
 ```bash
-# Cloud Run
-# Firestore or MongoDB Atlas
-# Memorystore Redis
-# Cloud Storage + Cloud CDN
-# Cloud Load Balancing
+curl -I https://visionretain-ai.vercel.app/api/health
 ```
 
-### Azure
+Expected result:
+
+```text
+HTTP/2 200
+```
+
+## Git Workflow
+
+The project is currently pushed to:
+
+```text
+https://github.com/AvinashChandra-git/VisionRetain-AI.git
+```
+
+Commits should be authored as:
+
+```text
+Avinash Chandra <AvinashChandra-git@users.noreply.github.com>
+```
+
+Set local author:
 
 ```bash
-# Azure Container Apps
-# Cosmos DB (MongoDB API)
-# Azure Cache for Redis
-# Azure Blob Storage
-# Azure Application Gateway
+git config user.name "Avinash Chandra"
+git config user.email "AvinashChandra-git@users.noreply.github.com"
 ```
 
----
+Push:
 
-## 📡 WebSocket Events
-
-Connect:
-
-```text
-wss://api.visionretain.ai/ws
+```bash
+git push avinash main
 ```
 
-| Topic                  | Event Type         | Payload                                  |
-| ---------------------- | ------------------ | ---------------------------------------- |
-| `/topic/notifications` | `CHURN_ALERT`      | customerId, name, score, severity        |
-| `/topic/notifications` | `PRICE_DROP`       | productName, platform, newPrice, dropPct |
-| `/topic/notifications` | `INVENTORY_ALERT`  | productId, platform, status              |
-| `/topic/dashboard`     | `DASHBOARD_UPDATE` | KPI snapshot every 30s                   |
+## Notes
 
----
-
-## 🏆 Hackathon / Demo Tips
-
-1. Start at the Landing Page → Launch Dashboard
-2. Product Lens → Upload a real product photo and see Google Gemini identify the product
-3. AI Copilot → Ask "Why are customers churning?"
-4. Churn → Generate AI retention playbooks
-5. Sentiment → Analyze Amazon reviews with Claude AI
-6. Reports → Generate board-ready executive summaries
-
----
-
-## 🛠️ Tech Stack Summary
-
-```text
-Frontend:   React 18 · Vite · Custom SVG Charts · Glassmorphism UI
-AI Layer:   Google Gemini Vision · Claude Sonnet 4.6
-ML:         XGBoost 2.0 · scikit-learn · FastAPI · pandas · numpy
-Backend:    Spring Boot 3 · Java 17 · Spring Security · WebSockets
-Database:   MongoDB 7 · Redis 7
-DevOps:     Docker · Docker Compose · GitHub Actions · Nginx
-Cloud:      AWS (ECS Fargate + S3 + CloudFront + ElastiCache)
-Monitoring: Spring Actuator · Prometheus-ready · Audit Logs
-```
-
----
-
-## 📄 License
-
-MIT License — Free for personal use, hackathons, portfolios, and internship demos.
-
----
-
-*Built with ❤️ using Google Gemini Vision, Claude AI · VisionRetain AI v2.0 · 2026*
+- Demo fallback data is intentionally present so the app looks complete before live customer imports are connected.
+- Live Supabase rows always take priority over demo data.
+- Dashboard values are derived from customer rows.
+- Product Lens scan history depends on the `product_scans` table.
+- Real customer analytics require customer rows in the `customers` table.
